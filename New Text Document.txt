@@ -1,0 +1,21 @@
+1)It doesn't ask for login again after reg
+
+2) it says listed successfully, but it didn't update its backend, ~ so issues with the database and backend.
+3) 
+
+
+1)there should be an option to end the auctin, and add a feature that tell how much time it shall be active.
+2) in profile page under my collection the thumb nail image is not visible.
+3) water mark is not there in gallery articles it needs to be implemented
+4) add a button to change from light mode to dark mode
+5) there shall be a master key creds available, who can end anyone's auction at any time,
+can check anyone's profile and delete their posts , basically they shall have all the power,
+this we have to implement for only one username and password, when the right combination is entered, then only it shall take you to the master page to edit everything, please make this.
+
+
+
+
+
+
+Make this at the end of the project:
+4)So create a private server and store everything in that And access everything via api. is this what being done ??
