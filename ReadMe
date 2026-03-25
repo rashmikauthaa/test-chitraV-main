@@ -1,0 +1,119 @@
+# ChitraVithika
+
+Fine art photography platform: browse a gallery, run Dutch and sealed auctions, upload work (stored in **MongoDB** via **GridFS**), collect editions, and manage buyer/seller dashboards. The SPA is built with **Vite**; the API is a **Node.js** server.
+
+## Features (overview)
+
+- Gallery and artwork detail pages with previews and optional engagement (likes, comments)
+- Auctions (open/Dutch and sealed/silent) with seller accept/decline and buyer dashboards
+- Email/password auth and optional **Google Sign-In** (Firebase Auth)
+- Admin dashboard for moderation and stats
+- MongoDB for users, photos, auctions, bids, and metadata
+
+## Prerequisites
+
+- **Node.js** (v18+ recommended; v20+ if you use the Firebase SDK without engine warnings)
+- **MongoDB** running locally or reachable (Atlas, etc.)
+- (Optional) **Firebase** project for Google Sign-In
+
+## Install dependencies
+
+From the repository root:
+
+```bash
+npm install
+```
+
+Dependencies are declared in `package.json` (runtime and dev). After cloning, run the command above once to install everything.
+
+## Environment variables
+
+1. Copy the example file and edit values:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Fill in placeholders. See **External services** below and **`.env.example`** for the full set of variables.
+
+Never commit `.env` (it is gitignored).
+
+## Run the project (development)
+
+You need **two** processes: the API server and the Vite dev server.
+
+1. **Start MongoDB** (if you use a local instance).
+
+2. **API server** (default port **3000**):
+
+   ```bash
+   npm run server
+   ```
+
+3. **Vite frontend** (default port **5173**, proxies `/api` to the server):
+
+   ```bash
+   npm run dev
+   ```
+
+4. Open the app in the browser: **http://localhost:5173**
+
+Vite proxies API calls to `http://localhost:3000`, so keep both terminals running.
+
+## Production build
+
+Build the SPA into `dist/`:
+
+```bash
+npm run build
+```
+
+Serve with the same Node server (it automatically uses `dist/` when that folder exists):
+
+```bash
+npm run server
+```
+
+Set `NODE_ENV=production` in production when you deploy. Open **http://localhost:3000** (or your configured `PUBLIC_ORIGIN`).
+
+## Scripts
+
+| Command | Purpose |
+|--------|---------|
+| `npm install` | Install all dependencies from `package.json` |
+| `npm run dev` | Vite dev server (SPA + HMR) |
+| `npm run build` | Production build to `dist/` |
+| `npm run preview` | Preview the production build locally (Vite) |
+| `npm run server` | Start the Node API server (`server.js`) |
+| `npm start` | Same as `npm run server` |
+
+## External services
+
+### MongoDB
+
+- Set `MONGO_URI` in `.env` to your connection string (see `.env.example`).
+- Default in code is `mongodb://127.0.0.1:27017/chitravithika` if unset.
+- Ensure the database is reachable before starting `npm run server`.
+
+### Firebase Authentication (Google Sign-In)
+
+- Create a Firebase project and enable **Authentication** → **Google** (and **Email/Password** if you use email login).
+- In **Project settings**, add a web app and copy the config values.
+- Put the client keys in `.env` as `VITE_FIREBASE_*` (Vite only exposes variables prefixed with `VITE_`).
+- Add your dev origins (e.g. `http://localhost:5173`) to **Authorized domains** in Firebase.
+
+## Optional: Admin app
+
+The `admin/` directory is a separate frontend with its own `package.json`. Run `npm install` inside `admin/` and configure it per that project’s docs (it uses `NEXT_PUBLIC_API_URL` for the API base URL).
+
+## Project layout (short)
+
+- `server.js` — HTTP API, static SPA shell, image routes, auth
+- `db/` — Mongoose models and Mongoose/GridFS helpers
+- `src/` — SPA pages, components, client state, Firebase client
+- `public/` — static assets; uploads folder is kept for structure but ignored in git
+- `vite.config.js` — Vite dev server, proxy, `VITE_` env prefix
+
+## License
+
+See `package.json` / repository owner for license terms if applicable.
