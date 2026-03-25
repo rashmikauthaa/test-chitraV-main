@@ -1,2 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Uploads (keep folder, ignore contents)
 public/uploads/*
 !public/uploads/.gitkeep
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

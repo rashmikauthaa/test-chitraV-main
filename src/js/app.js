@@ -26,6 +26,7 @@ addRoute('/login', () => import('/src/pages/login.js'));
 addRoute('/register', () => import('/src/pages/register.js'));
 addRoute('/dashboard/buyer', () => import('/src/pages/dashboard-buyer.js'));
 addRoute('/dashboard/photographer', () => import('/src/pages/dashboard-photographer.js'));
+addRoute('/dashboard/admin', () => import('/src/pages/dashboard-admin.js'));
 addRoute('/submit', () => import('/src/pages/submit.js'));
 addRoute('/my-work', () => import('/src/pages/my-work.js'));
 addRoute('/checkout/:id', () => import('/src/pages/checkout.js'));
@@ -115,40 +116,95 @@ function syncAuthNavClass() {
 
 function wireHeaderAuth() {
     const authBtn = document.getElementById('btn-auth');
-    const logoutBtn = document.getElementById('btn-logout');
+    const userMenu = document.getElementById('cv-user-menu');
+    const menuTrigger = document.getElementById('cv-user-menu-trigger');
+    const menuDropdown = document.getElementById('cv-user-menu-dropdown');
+    const menuName = document.getElementById('cv-user-menu-name');
+    const dashboardItem = document.getElementById('cv-user-menu-dashboard');
+    const logoutBtn = document.getElementById('btn-header-logout');
     if (!authBtn) return;
 
-    updateAuthButton(authBtn, logoutBtn);
+    function closeUserMenu() {
+        if (!menuDropdown || !menuTrigger) return;
+        menuDropdown.hidden = true;
+        menuTrigger.setAttribute('aria-expanded', 'false');
+        userMenu?.classList.remove('cv-user-menu--open');
+    }
+
+    function openUserMenu() {
+        if (!menuDropdown || !menuTrigger) return;
+        menuDropdown.hidden = false;
+        menuTrigger.setAttribute('aria-expanded', 'true');
+        userMenu?.classList.add('cv-user-menu--open');
+    }
+
+    function toggleUserMenu() {
+        const open = menuTrigger?.getAttribute('aria-expanded') === 'true';
+        if (open) closeUserMenu();
+        else openUserMenu();
+    }
+
+    updateAuthButton(authBtn, userMenu, menuName);
     subscribe('auth', () => {
-        updateAuthButton(authBtn, logoutBtn);
+        updateAuthButton(authBtn, userMenu, menuName);
+        closeUserMenu();
         syncAuthNavClass();
     });
 
     authBtn.addEventListener('click', () => {
-        if (isLoggedIn()) {
-            const user = currentUser();
-            const path = user.role === 'photographer' ? '/dashboard/photographer' : '/dashboard/buyer';
-            navigate(path);
-        } else {
-            navigate('/login');
-        }
+        navigate('/login');
+    });
+
+    menuTrigger?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleUserMenu();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (userMenu && !userMenu.contains(e.target)) closeUserMenu();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeUserMenu();
+    });
+
+    document.addEventListener('cv:route-change', () => closeUserMenu());
+
+    dashboardItem?.addEventListener('click', () => {
+        closeUserMenu();
+        const user = currentUser();
+        if (!user) return;
+        const path = user.role === 'admin' ? '/dashboard/admin' :
+            user.role === 'photographer' ? '/dashboard/photographer' : '/dashboard/buyer';
+        navigate(path);
     });
 
     logoutBtn?.addEventListener('click', () => {
+        closeUserMenu();
         logout();
-        updateAuthButton(authBtn, logoutBtn);
+        updateAuthButton(authBtn, userMenu, menuName);
         navigate('/');
     });
 }
 
-function updateAuthButton(btn, logoutBtn) {
+function updateAuthButton(btn, userMenu, menuName) {
     if (isLoggedIn()) {
         const user = currentUser();
-        btn.textContent = user.name;
-        if (logoutBtn) logoutBtn.style.display = '';
+        btn.hidden = true;
+        btn.setAttribute('aria-hidden', 'true');
+        if (userMenu) {
+            userMenu.hidden = false;
+            userMenu.removeAttribute('aria-hidden');
+        }
+        if (menuName) menuName.textContent = user.name;
     } else {
+        btn.hidden = false;
+        btn.removeAttribute('aria-hidden');
+        if (userMenu) {
+            userMenu.hidden = true;
+            userMenu.setAttribute('aria-hidden', 'true');
+        }
         btn.textContent = 'Sign in';
-        if (logoutBtn) logoutBtn.style.display = 'none';
     }
 }
 

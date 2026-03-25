@@ -219,7 +219,7 @@
           <a href="/gallery" class="cv-nav__link cv-nav__link--member" data-nav="gallery">Gallery</a>
           <a href="/auctions" class="cv-nav__link cv-nav__link--member" data-nav="auctions">Auctions</a>
           <a href="/artists" class="cv-nav__link cv-nav__link--member" data-nav="artists">Artists</a>
-          <a href="/submit" class="cv-nav__link" data-nav="submit">Submit Work</a>
+          <a href="/submit" class="cv-nav__link" data-nav="submit">Post Work</a>
           <a href="/register" class="cv-nav__link cv-nav__link--guest-only">Join</a>
           <a href="/about" class="cv-nav__link" data-nav="about">About</a>
         </nav>
@@ -249,12 +249,33 @@
               </svg>
             </span>
           </button>
-          <liquid-button id="btn-auth" variant="ghost" aria-label="Login or account">
-            Login
+          <liquid-button id="btn-auth" variant="ghost" aria-label="Sign in">
+            Sign in
           </liquid-button>
-          <liquid-button id="btn-logout" variant="ghost" aria-label="Sign out" style="display:none;">
-            Logout
-          </liquid-button>
+
+          <div id="cv-user-menu" class="cv-user-menu" hidden aria-hidden="true">
+            <button type="button" id="cv-user-menu-trigger" class="cv-user-menu__trigger"
+              aria-label="Account menu" aria-expanded="false" aria-haspopup="true"
+              aria-controls="cv-user-menu-dropdown">
+              <span class="sr-only">Open account menu</span>
+              <svg class="cv-user-menu__icon" width="22" height="22" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"
+                aria-hidden="true">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c1.5-4 5.5-6 8-6s6.5 2 8 6" />
+              </svg>
+            </button>
+            <div id="cv-user-menu-dropdown" class="cv-user-menu__dropdown" role="menu" hidden>
+              <div class="cv-user-menu__name" id="cv-user-menu-name" role="presentation"></div>
+              <button type="button" class="cv-user-menu__item" id="cv-user-menu-dashboard" role="menuitem">
+                Dashboard
+              </button>
+              <button type="button" class="cv-user-menu__item cv-user-menu__item--danger" id="btn-header-logout"
+                role="menuitem">
+                Log out
+              </button>
+            </div>
+          </div>
         </div>
 
       </div><!-- /.cv-header__inner -->

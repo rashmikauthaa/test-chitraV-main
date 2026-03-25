@@ -92,6 +92,34 @@ class UploadZone extends HTMLElement {
           background: rgba(255,255,255,0.02);
         }
 
+        /*
+         * Light document theme: default (dark-styled) zone needs a real dark surface
+         * so white/gold text is not invisible on the pale page background.
+         */
+        :host-context(html[data-theme="light"]) .uz-zone:not(.uz-zone--light) {
+          background: #0a0a0a;
+          border-color: rgba(200, 169, 110, 0.28);
+        }
+
+        :host-context(html[data-theme="light"]) .uz-zone:not(.uz-zone--light).dragging {
+          border-color: rgba(200, 169, 110, 0.55);
+          background: #12100e;
+        }
+
+        :host-context(html[data-theme="light"]) .uz-zone:not(.uz-zone--light).has-files {
+          border-color: rgba(200, 169, 110, 0.35);
+        }
+
+        :host-context(html[data-theme="light"]) .uz-zone:not(.uz-zone--light).success {
+          border-color: rgba(76, 175, 129, 0.55);
+          background: rgba(12, 28, 18, 0.95);
+        }
+
+        :host-context(html[data-theme="light"]) .uz-zone:not(.uz-zone--light).error {
+          border-color: rgba(224, 82, 82, 0.55);
+          background: rgba(28, 12, 12, 0.95);
+        }
+
         /* Light panel (e.g. submit page left column): strong contrast on pale backgrounds */
         .uz-zone--light {
           border-color: rgba(90, 78, 58, 0.35);
@@ -135,7 +163,7 @@ class UploadZone extends HTMLElement {
           font-family: 'Playfair Display', Georgia, serif;
           font-size: 1.25rem;
           font-weight: 700;
-          color: #d4b896;
+          color: #ffffff;
           margin-bottom: 8px;
           text-shadow: 0 1px 2px rgba(0,0,0,0.3);
         }

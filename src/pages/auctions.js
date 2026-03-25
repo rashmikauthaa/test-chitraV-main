@@ -49,8 +49,11 @@ export function render() {
         <div class="cv-cards-grid">
           ${catalog.slice(0, 3).map(item => `
             <a href="/auctions/silent/${item.id}" class="cv-auction-card" style="text-decoration:none;color:inherit;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5);display:block;transition:border-color 0.25s ease;">
-              <div style="aspect-ratio:16/9;background:linear-gradient(135deg,${item.color || '#333'}40,var(--color-gradient-end));border-radius:var(--radius-md);margin-bottom:var(--space-4);display:flex;align-items:center;justify-content:center;">
-                <span style="font-size:var(--text-xs);color:rgba(255,255,255,0.3);letter-spacing:0.2em;text-transform:uppercase;">Sealed Bid</span>
+              <div style="aspect-ratio:16/9;background:linear-gradient(135deg,${item.color || '#333'}40,var(--color-gradient-end));border-radius:var(--radius-md);margin-bottom:var(--space-4);position:relative;overflow:hidden;">
+                <img src="/api/image-preview/${item.id}" loading="lazy" alt="${item.title}"
+                  style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 0.6s ease;"
+                  onload="this.style.opacity='1'" onerror="this.style.display='none'" />
+                <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:var(--text-xs);color:rgba(255,255,255,0.5);letter-spacing:0.2em;text-transform:uppercase;background:rgba(0,0,0,0.3);">Sealed Bid</span>
               </div>
               <h3 style="font-family:var(--font-display);font-size:var(--text-md);font-weight:600;color:var(--color-text-primary);margin-bottom:var(--space-1);">${item.title}</h3>
               <p style="font-size:var(--text-xs);color:var(--color-text-tertiary);margin-bottom:var(--space-3);">${item.artist}</p>

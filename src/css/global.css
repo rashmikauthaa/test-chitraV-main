@@ -378,6 +378,108 @@ html.cv-logged-in .cv-footer__link--guest-only {
   flex-shrink: 0;
 }
 
+/* User account menu (icon + dropdown) */
+.cv-user-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+#cv-user-menu[hidden] {
+  display: none !important;
+}
+
+#btn-auth[hidden] {
+  display: none !important;
+}
+
+.cv-user-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    color var(--duration-base) ease,
+    border-color var(--duration-base) ease,
+    background var(--duration-base) ease,
+    box-shadow var(--duration-base) ease;
+}
+
+.cv-user-menu__trigger:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent-dim);
+  background: var(--color-surface);
+}
+
+.cv-user-menu--open .cv-user-menu__trigger {
+  color: var(--color-accent);
+  border-color: var(--color-accent-dim);
+  box-shadow: 0 0 0 2px rgba(200, 169, 110, 0.2);
+}
+
+.cv-user-menu__icon {
+  flex-shrink: 0;
+}
+
+.cv-user-menu__dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  min-width: 220px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  z-index: 200;
+}
+
+.cv-user-menu__dropdown[hidden] {
+  display: none !important;
+}
+
+.cv-user-menu__name {
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-1);
+  word-break: break-word;
+}
+
+.cv-user-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  margin: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--duration-base) ease, color var(--duration-base) ease;
+}
+
+.cv-user-menu__item:hover {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.cv-user-menu__item--danger:hover {
+  color: #e05252;
+}
+
 .cv-theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -913,4 +1015,31 @@ html[data-theme="light"] .cv-theme-toggle__icon--moon {
 
 .cv-gallery-card:hover .cv-gallery-card__image img {
   transform: scale(1.05);
+}
+
+/* ─── SPINNER ANIMATION ─────────────────────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.cv-spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* ─── THEME-AWARE TEXT (white in dark, black in light) ───── */
+.cv-google-btn {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .cv-google-btn {
+  color: #000000;
+}
+
+.cv-theme-text {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .cv-theme-text {
+  color: #000000;
 }

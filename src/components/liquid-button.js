@@ -60,6 +60,7 @@ class LiquidButton extends HTMLElement {
         }
 
         :host([disabled]) { opacity: 0.4; pointer-events: none; }
+        :host([hidden]) { display: none !important; }
 
         /* ─── SVG FILTER (hidden, defines the liquid effect) ─── */
         .lb-filters { position: absolute; width: 0; height: 0; overflow: hidden; }

@@ -49,7 +49,6 @@ export function render() {
             </div>
             <upload-zone
               id="submit-upload"
-              theme="light"
               accept=".jpg,.jpeg,.png,.webp"
               max-size-mb="50">
             </upload-zone>
@@ -99,6 +98,15 @@ export function render() {
 
               <div class="cv-submit-form__section">
                 <h3 class="cv-submit-form__section-title">Pricing</h3>
+
+                <div class="cv-form-group" style="margin-bottom:var(--space-4);">
+                  <label for="submit-auction-type" class="cv-form-label">Auction format</label>
+                  <select id="submit-auction-type" name="auction_type" class="cv-form-select">
+                    <option value="dutch">Open (Dutch) — price drops over time; buy at current price</option>
+                    <option value="silent">Sealed — collectors submit hidden bids; you choose a winner</option>
+                  </select>
+                  <p class="cv-form-hint">Sealed auctions let you grant, decline, or end the listing from your photographer dashboard.</p>
+                </div>
 
                 <div class="cv-form-row">
                   <div class="cv-form-group">
@@ -215,6 +223,8 @@ export function mount() {
       formData.append('price', String(price));
       formData.append('floor', String(floor));
       formData.append('tags', tags.join(','));
+      const auctionType = form.elements['auction_type']?.value || 'dutch';
+      formData.append('auction_type', auctionType);
 
       const token = getState('auth.token');
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};

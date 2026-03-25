@@ -2,7 +2,7 @@
  * ChitraVithika — Open Auction (Bidding Room)
  * Route: /auctions/open/:id
  */
-import { getCatalogItem, isLoggedIn, placeBid, addToCollection } from '../js/state.js';
+import { getCatalogItem, isLoggedIn, placeBid, addToCollection, getAuthToken } from '../js/state.js';
 import { navigate } from '../js/router.js';
 
 export function render({ id }) {
@@ -87,9 +87,13 @@ export function mount({ id }) {
         status.textContent = '';
 
         try {
+            const token = getAuthToken();
             const res = await fetch(`/api/bids/${id}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 body: JSON.stringify({ amount: item.price }),
             });
             const data = await res.json();

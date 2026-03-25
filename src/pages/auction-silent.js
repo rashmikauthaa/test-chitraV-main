@@ -2,7 +2,7 @@
  * ChitraVithika — Silent Auction Page
  * Route: /auctions/silent/:id
  */
-import { getCatalogItem, isLoggedIn, placeBid } from '../js/state.js';
+import { getCatalogItem, isLoggedIn, getAuthToken } from '../js/state.js';
 import { navigate } from '../js/router.js';
 
 export function render({ id }) {
@@ -102,7 +102,23 @@ export function mount({ id }) {
         submitBtn.textContent = 'Submitting…';
 
         try {
-            placeBid(item.id, amount, 'silent');
+            const token = getAuthToken();
+            if (!token) {
+                navigate('/login');
+                return;
+            }
+            const res = await fetch(`/api/bids/${id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ amount }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || 'Could not submit bid');
+            }
             statusEl.innerHTML = `
         <div class="cv-success-card" style="margin:0;">
           <div class="cv-success-card__icon">🔒</div>

@@ -31,6 +31,9 @@ const userSchema = new Schema({
     name: { type: String, required: true },
     role: { type: String, enum: ['buyer', 'photographer', 'admin'], default: 'buyer' },
     password_hash: { type: String, default: null },
+    firebase_uid: { type: String, default: null },            // Firebase UID for Google sign-in
+    photo_url: { type: String, default: null },               // Profile photo from Google
+    auth_provider: { type: String, enum: ['email', 'google'], default: 'email' },
     last_active: { type: Date, default: null },
 }, {
     timestamps: { createdAt: 'created_at', updatedAt: false },
@@ -100,17 +103,53 @@ const bidSchema = new Schema({
     user_id: { type: String, ref: 'User', default: null },
     user_name: { type: String, default: 'Anonymous' },
     amount: { type: Number, required: true },
-    accepted: { type: Boolean, default: false },
+    accepted: { type: Boolean, default: false },              // legacy: instant Dutch win
+    bid_status: {
+        type: String,
+        enum: ['pending', 'active', 'accepted', 'declined', 'cancelled'],
+        default: 'pending',
+    },
 }, {
-    timestamps: { createdAt: 'placed_at', updatedAt: false },
+    timestamps: { createdAt: 'placed_at', updatedAt: 'updated_at' },
 });
 
 bidSchema.index({ auction_id: 1 });
+bidSchema.index({ user_id: 1 });
+
+// ─── Like Schema ─────────────────────────────────────────────
+const likeSchema = new Schema({
+    _id: { type: Number },
+    photo_id: { type: Number, ref: 'Photograph', required: true },
+    user_id: { type: String, ref: 'User', required: true },
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: false },
+});
+
+likeSchema.index({ photo_id: 1 });
+likeSchema.index({ user_id: 1 });
+likeSchema.index({ photo_id: 1, user_id: 1 }, { unique: true });
+
+// ─── Comment Schema ──────────────────────────────────────────
+const commentSchema = new Schema({
+    _id: { type: Number },
+    photo_id: { type: Number, ref: 'Photograph', required: true },
+    user_id: { type: String, ref: 'User', required: true },
+    user_name: { type: String, required: true },
+    content: { type: String, required: true, maxlength: 1000 },
+    edited: { type: Boolean, default: false },
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+});
+
+commentSchema.index({ photo_id: 1 });
+commentSchema.index({ user_id: 1 });
 
 // ─── Models ──────────────────────────────────────────────────
 const User = mongoose.model('User', userSchema);
 const Photograph = mongoose.model('Photograph', photographSchema);
 const Auction = mongoose.model('Auction', auctionSchema);
 const Bid = mongoose.model('Bid', bidSchema);
+const Like = mongoose.model('Like', likeSchema);
+const Comment = mongoose.model('Comment', commentSchema);
 
-module.exports = { User, Photograph, Auction, Bid, Counter, getNextSequence };
+module.exports = { User, Photograph, Auction, Bid, Like, Comment, Counter, getNextSequence };

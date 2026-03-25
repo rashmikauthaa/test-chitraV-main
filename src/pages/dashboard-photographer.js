@@ -1,28 +1,51 @@
 /**
  * ChitraVithika — Photographer Dashboard
  * Route: /dashboard/photographer
- *
- * Features:
- *   - Stats overview (listings, sold, revenue, editions)
- *   - Listings table with Quality Health indicator
- *   - Bid History section
- *   - Submit new work CTA
  */
-import { isLoggedIn, currentUser, getCatalog, getState, logout } from '../js/state.js';
+import { isLoggedIn, currentUser, getCatalog, getAuthToken, logout } from '../js/state.js';
 import { navigate } from '../js/router.js';
 
+const PAGE_SIZE = 5;
+let bidPage = 1;
+let incomingBids = [];
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 function qualityBadge(item) {
-    // Determine quality tier based on file size and resolution
     const hasHighRes = (item.width && item.height && item.width >= 3000);
     const hasExif = item.exif && (item.exif.camera || item.exif.lens);
-
     if (hasHighRes && hasExif) {
         return `<span class="cv-quality-badge cv-quality-badge--high">● Lossless</span>`;
-    } else if (hasHighRes || hasExif) {
-        return `<span class="cv-quality-badge cv-quality-badge--medium">● Good</span>`;
-    } else {
-        return `<span class="cv-quality-badge cv-quality-badge--low">● Basic</span>`;
     }
+    if (hasHighRes || hasExif) {
+        return `<span class="cv-quality-badge cv-quality-badge--medium">● Good</span>`;
+    }
+    return `<span class="cv-quality-badge cv-quality-badge--low">● Basic</span>`;
+}
+
+function bidRowStatus(b) {
+    const st = b.bid_status || 'active';
+    if (st === 'pending') return '<span class="cv-badge" style="background:rgba(200,169,110,0.2);color:var(--color-accent);">Pending</span>';
+    if (st === 'declined') return '<span class="cv-badge" style="background:rgba(180,80,80,0.15);color:#c44;">Declined</span>';
+    if (st === 'cancelled') return '<span class="cv-badge" style="opacity:0.8;">Closed</span>';
+    if (st === 'accepted') return '<span class="cv-badge cv-badge--live">Won by buyer</span>';
+    return '<span class="cv-badge cv-badge--live">Active</span>';
+}
+
+function pagerHtml(page, tp, total) {
+    if (total <= PAGE_SIZE) return '';
+    return `
+      <div class="cv-dash-pager" style="display:flex;align-items:center;justify-content:center;gap:var(--space-4);margin-top:var(--space-4);font-size:var(--text-sm);">
+        <button type="button" class="cv-btn cv-btn--ghost cv-btn--small" data-pager="bid" data-dir="prev" ${page <= 1 ? 'disabled' : ''}>Previous</button>
+        <span style="color:var(--color-text-tertiary);">Page ${page} / ${tp}</span>
+        <button type="button" class="cv-btn cv-btn--ghost cv-btn--small" data-pager="bid" data-dir="next" ${page >= tp ? 'disabled' : ''}>Next</button>
+      </div>`;
 }
 
 export function render() {
@@ -35,14 +58,25 @@ export function render() {
     const myWorks = catalog.filter(i => i.artist === user.name);
     const totalRevenue = myWorks.reduce((sum, i) => sum + (i.price * (i.editions - i.remaining)), 0);
     const totalSold = myWorks.reduce((sum, i) => sum + (i.editions - i.remaining), 0);
-    const bids = getState('bids.active') || [];
+
+    const tp = Math.max(1, Math.ceil(incomingBids.length / PAGE_SIZE));
+    const p = Math.min(Math.max(1, bidPage), tp);
+    const start = (p - 1) * PAGE_SIZE;
+    const slice = incomingBids.slice(start, start + PAGE_SIZE);
+
+    const photoEndButtons = [...new Map(myWorks.map((w) => [w.id, w])).values()]
+        .map((w) => `
+          <button type="button" class="cv-btn cv-btn--ghost cv-btn--small" data-end-auction="${w.id}" title="End without selling (cancels pending sealed bids)">
+            End #${w.id}
+          </button>
+        `).join(' ');
 
     return `
     <div class="cv-page-container">
       <div class="cv-page-header">
         <p class="cv-page-header__eyebrow">Photographer Dashboard</p>
-        <h1 class="cv-page-header__title">Welcome, ${user.name}</h1>
-        <p class="cv-page-header__subtitle">Manage your listings, track earnings, and submit new work.</p>
+        <h1 class="cv-page-header__title">Welcome, ${escapeHtml(user.name)}</h1>
+        <p class="cv-page-header__subtitle">Manage your listings, sealed bids, and earnings.</p>
       </div>
 
       <div class="cv-stats-row">
@@ -68,7 +102,6 @@ export function render() {
         <a href="/submit" class="cv-btn cv-btn--primary cv-btn--large">+ Submit New Work</a>
       </div>
 
-      <!-- Listings with Quality Health -->
       <div class="cv-dash-section">
         <h2 class="cv-dash-section__title">Your Listings</h2>
         ${myWorks.length === 0 ? `
@@ -93,8 +126,8 @@ export function render() {
               <tbody>
                 ${myWorks.map(item => `
                   <tr>
-                    <td><a href="/gallery/${item.id}" style="color:var(--color-accent);">${item.title}</a></td>
-                    <td style="text-transform:capitalize;">${item.category}</td>
+                    <td><a href="/gallery/${item.id}" style="color:var(--color-accent);">${escapeHtml(item.title)}</a></td>
+                    <td style="text-transform:capitalize;">${escapeHtml(item.category)}</td>
                     <td style="font-family:var(--font-mono);color:var(--color-accent);">$${item.price.toLocaleString()}</td>
                     <td>${item.editions}</td>
                     <td>${item.editions - item.remaining}</td>
@@ -105,45 +138,58 @@ export function render() {
               </tbody>
             </table>
           </div>
+          ${myWorks.length ? `<p style="margin-top:var(--space-3);font-size:var(--text-sm);color:var(--color-text-secondary);">End an auction without selling: ${photoEndButtons}</p>` : ''}
         `}
       </div>
 
-      <!-- Bid History -->
       <div class="cv-dash-section">
-        <h2 class="cv-dash-section__title">Bid History</h2>
-        ${bids.length === 0 ? `
-          <p style="color:var(--color-text-tertiary);font-size:var(--text-sm);font-style:italic;">
-            No bids received yet. Active bids on your works will appear here.
-          </p>
+        <h2 class="cv-dash-section__title">Incoming bids</h2>
+        <p style="font-size:var(--text-sm);color:var(--color-text-tertiary);margin-bottom:var(--space-4);">
+          For <strong>sealed</strong> listings, grant a bid to sell to that collector, decline individual bids, or end the auction without a sale.
+        </p>
+        ${incomingBids.length === 0 ? `
+          <p style="color:var(--color-text-tertiary);font-size:var(--text-sm);font-style:italic;">No bids yet.</p>
         ` : `
           <div class="cv-table-wrap">
             <table class="cv-table">
               <thead><tr>
                 <th>Work</th>
-                <th>Bid Amount</th>
+                <th>Bidder</th>
+                <th>Amount</th>
                 <th>Type</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr></thead>
               <tbody>
-                ${bids.map(bid => `
+                ${slice.map((b) => `
                   <tr>
-                    <td>Item #${bid.itemId}</td>
-                    <td style="font-family:var(--font-mono);color:var(--color-accent);">$${bid.amount.toLocaleString()}</td>
-                    <td style="text-transform:capitalize;">${bid.type}</td>
-                    <td><span class="cv-badge cv-badge--live">Active</span></td>
+                    <td><a href="/gallery/${b.photo_id}" style="color:var(--color-accent);">${escapeHtml(b.work_title || 'Work')}</a></td>
+                    <td>${escapeHtml(b.user_name || '—')}</td>
+                    <td style="font-family:var(--font-mono);color:var(--color-accent);">$${b.amount.toLocaleString()}</td>
+                    <td style="text-transform:capitalize;">${escapeHtml(b.auction_type || '')}</td>
+                    <td>${bidRowStatus(b)}</td>
+                    <td style="white-space:nowrap;">
+                      ${b.auction_type === 'silent' && b.bid_status === 'pending' && !b.sold && !b.ended_at ? `
+                        <button type="button" class="cv-btn cv-btn--primary cv-btn--small" data-grant-bid="${b.id}">Grant</button>
+                        <button type="button" class="cv-btn cv-btn--ghost cv-btn--small" data-decline-bid="${b.id}">Decline</button>
+                      ` : '—'}
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           </div>
+          ${pagerHtml(p, tp, incomingBids.length)}
         `}
-      </div>
-
-      <div style="margin-top:var(--space-8);text-align:center;">
-        <button class="cv-btn cv-btn--danger" id="btn-logout">Sign Out</button>
       </div>
     </div>
   `;
+}
+
+function redraw() {
+    const outlet = document.getElementById('cv-page');
+    if (outlet) outlet.innerHTML = render();
+    bind();
 }
 
 export function mount() {
@@ -152,12 +198,83 @@ export function mount() {
         return;
     }
 
+    (async () => {
+        const token = getAuthToken();
+        if (token) {
+            try {
+                const res = await fetch('/api/seller/incoming-bids', {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    incomingBids = await res.json();
+                }
+            } catch (e) {
+                console.warn('[photographer] incoming bids', e);
+            }
+        }
+        redraw();
+    })();
+}
+
+function bind() {
+    document.querySelectorAll('[data-pager]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const dir = btn.getAttribute('data-dir');
+            bidPage += dir === 'next' ? 1 : -1;
+            redraw();
+        });
+    });
+
+    document.querySelectorAll('[data-grant-bid]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-grant-bid');
+            if (!confirm('Grant this bid? The buyer will acquire the work at this price.')) return;
+            await fetch(`/api/seller/bids/${id}/accept`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            const res = await fetch('/api/seller/incoming-bids', {
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            if (res.ok) incomingBids = await res.json();
+            redraw();
+        });
+    });
+
+    document.querySelectorAll('[data-decline-bid]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-decline-bid');
+            if (!confirm('Decline this bid?')) return;
+            await fetch(`/api/seller/bids/${id}/decline`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            const res = await fetch('/api/seller/incoming-bids', {
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            if (res.ok) incomingBids = await res.json();
+            redraw();
+        });
+    });
+
+    document.querySelectorAll('[data-end-auction]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const photoId = btn.getAttribute('data-end-auction');
+            if (!confirm('End this auction without a sale? Pending sealed bids will be cancelled.')) return;
+            await fetch(`/api/seller/auctions/${photoId}/end`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            const res = await fetch('/api/seller/incoming-bids', {
+                headers: { Authorization: `Bearer ${getAuthToken()}` },
+            });
+            if (res.ok) incomingBids = await res.json();
+            redraw();
+        });
+    });
+
     document.getElementById('btn-logout')?.addEventListener('click', () => {
         logout();
-        const authBtn = document.getElementById('btn-auth');
-        if (authBtn) authBtn.textContent = 'Login';
-        const logoutBtn = document.getElementById('btn-logout');
-        if (logoutBtn) logoutBtn.style.display = 'none';
         navigate('/');
     });
 }

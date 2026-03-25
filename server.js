@@ -34,8 +34,11 @@ const store = require('./db/database.js');
 // ─────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || `http://localhost:${PORT}`).replace(/\/$/, '');
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 const ROOT = __dirname;
+const DIST_DIR = path.join(ROOT, 'dist');
+const HAS_DIST = fs.existsSync(DIST_DIR);
 
 /** 
  * Load photo file for an item - tries GridFS first, then falls back to filesystem.
@@ -172,18 +175,23 @@ const auctionStates = {};
 async function initAuctions() {
     const auctions = await store.getAuctions();
     auctions.forEach(a => {
+        const isSilent = a.type === 'silent';
         auctionStates[a.photo_id] = {
             auctionId: a.id,
             itemId: a.photo_id,
             title: a.title,
+            type: a.type || 'dutch',
             currentPrice: a.current_price,
             floor: a.floor_price,
             startPrice: a.start_price,
-            decrement: a.decrement,
+            decrement: a.decrement || 0,
             startedAt: Date.now(),
-            intervalMs: a.interval_ms,
+            intervalMs: a.interval_ms || 10_000,
             sold: !!a.sold,
         };
+        if (isSilent) {
+            auctionStates[a.photo_id].decrement = 0;
+        }
     });
     console.log(`[auction] Initialized ${auctions.length} auctions from DB`);
 }
@@ -191,7 +199,7 @@ async function initAuctions() {
 function tickAuctions() {
     const now = Date.now();
     Object.values(auctionStates).forEach(state => {
-        if (state.sold) return;
+        if (state.sold || state.type === 'silent') return;
         const elapsed = now - (state._lastTick || state.startedAt);
         if (elapsed >= state.intervalMs) {
             state.currentPrice = Math.max(state.floor, state.currentPrice - state.decrement);
@@ -375,24 +383,37 @@ async function handleRequest(req, res) {
 
     // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
     try {
         // ── Root → index.html ──────────────────────────────────
         if (pname === '/' && method === 'GET') {
-            return serveStatic(res, path.join(ROOT, 'index.html'));
+            const indexPath = HAS_DIST ? path.join(DIST_DIR, 'index.html') : path.join(ROOT, 'index.html');
+            return serveStatic(res, indexPath);
         }
 
-        // ── Static source files ────────────────────────────────
+        // ── Static source files (dev mode) ─────────────────────
         if (pname.startsWith('/src/') && method === 'GET') {
             const safe = path.normalize(pname).replace(/^(\.\.(\/|\\|$))+/, '');
             return serveStatic(res, path.join(ROOT, safe));
         }
 
+        // ── Vite build assets (production) ─────────────────────
+        if (pname.startsWith('/assets/') && method === 'GET' && HAS_DIST) {
+            const safe = path.normalize(pname).replace(/^(\.\.(\/|\\|$))+/, '');
+            return serveStatic(res, path.join(DIST_DIR, safe));
+        }
+
         // ── Public assets ──────────────────────────────────────
         if (pname.startsWith('/public/') && method === 'GET') {
             const safe = path.normalize(pname).replace(/^(\.\.(\/|\\|$))+/, '');
+            // Try dist first, then root
+            const distPath = path.join(DIST_DIR, safe);
+            if (HAS_DIST && fs.existsSync(distPath)) {
+                return serveStatic(res, distPath);
+            }
             return serveStatic(res, path.join(ROOT, safe));
         }
 
@@ -589,25 +610,28 @@ async function handleRequest(req, res) {
                     exif_shutter: exif.shutter,
                 });
 
+                const price = parseFloat(fields.price) || 1500;
+                const floor = parseFloat(fields.floor) || 500;
+                const auctionType = (fields.auction_type === 'silent' ? 'silent' : 'dutch');
+
                 // Create auction for this photograph
                 const auctionId = await store.createAuction({
                     photo_id: photoId,
-                    type: 'dutch',
-                    start_price: parseFloat(fields.price) || 1500,
-                    floor_price: parseFloat(fields.floor) || 500,
+                    type: auctionType,
+                    start_price: price,
+                    floor_price: floor,
                 });
 
-                // Add to in-memory auction engine
-                const price = parseFloat(fields.price) || 1500;
-                const floor = parseFloat(fields.floor) || 500;
+                // Add to in-memory auction engine (Dutch ticks; silent is static until seller acts)
                 auctionStates[photoId] = {
                     auctionId,
                     itemId: photoId,
                     title: fields.title || filePart.filename,
+                    type: auctionType,
                     currentPrice: price,
                     floor: floor,
                     startPrice: price,
-                    decrement: Math.round((price - floor) / 20),
+                    decrement: auctionType === 'silent' ? 0 : Math.round((price - floor) / 20),
                     startedAt: Date.now(),
                     intervalMs: 10_000,
                     sold: false,
@@ -629,6 +653,57 @@ async function handleRequest(req, res) {
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ uploaded: saved }));
+        }
+
+        // ── POST /api/auth/google — Firebase Google Sign-In ───────────────────
+        if (pname === '/api/auth/google' && method === 'POST') {
+            const body = await readJSON(req);
+            const { uid, email, name, photoURL } = body;
+            
+            if (!uid || !email) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Invalid Firebase user data' }));
+            }
+            
+            // Check if user exists by email
+            let user = await store.getUserByEmail(email.toLowerCase());
+            
+            if (!user) {
+                // Create new user from Google sign-in
+                const userId = `usr_${crypto.randomBytes(8).toString('hex')}`;
+                await store.createUser({
+                    id: userId,
+                    email: email.toLowerCase(),
+                    name: name || email.split('@')[0],
+                    role: 'buyer', // Default role for Google sign-in
+                    password_hash: null, // No password for Google users
+                    firebase_uid: uid,
+                    photo_url: photoURL,
+                });
+                user = await store.getUserByEmail(email.toLowerCase());
+                console.log(`[auth] New Google user registered: ${email}`);
+            } else {
+                // Update existing user with Firebase UID if not set
+                if (!user.firebase_uid) {
+                    await store.updateUserFirebaseUID(user.id, uid, photoURL);
+                }
+            }
+            
+            const token = generateToken();
+            tokens.set(token, user.email);
+            await store.touchUser(user.id);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                user: { 
+                    id: user.id, 
+                    email: user.email, 
+                    name: user.name, 
+                    role: user.role,
+                    photoURL: user.photo_url || photoURL,
+                },
+                token,
+            }));
         }
 
         // ── POST /api/auth/login — DB-BACKED ───────────────────
@@ -706,32 +781,81 @@ async function handleRequest(req, res) {
         const bidMatch = pname.match(/^\/api\/bids\/(\d+)$/);
         if (bidMatch && method === 'POST') {
             const itemId = parseInt(bidMatch[1], 10);
-            const auction = auctionStates[itemId];
-            if (!auction) {
+            const dbAuc = await store.getAuctionByPhotoId(itemId);
+            if (!dbAuc) {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'Auction not found' }));
             }
+            if (dbAuc.sold || dbAuc.ended_at) {
+                res.writeHead(410, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Auction has already ended' }));
+            }
+
             const body = await readJSON(req);
             const amount = parseFloat(body.amount);
             if (isNaN(amount) || amount <= 0) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'Invalid bid amount' }));
             }
+
+            const bidUser = await getUserFromRequest(req);
+            
+            // Prevent bidding on own content
+            if (bidUser) {
+                const photo = await store.getPhotograph(itemId);
+                if (photo && (photo.artistId === bidUser.id || photo.artist === bidUser.name)) {
+                    res.writeHead(403, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'You cannot bid on your own content' }));
+                }
+            }
+            
+            const auction = auctionStates[itemId];
+
+            // ── Sealed (silent): pending until seller grants or declines ──
+            if (dbAuc.type === 'silent') {
+                if (!bidUser) {
+                    res.writeHead(401, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'Sign in to place a sealed bid' }));
+                }
+                if (amount < (dbAuc.floor_price || 0)) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: `Minimum bid is $${dbAuc.floor_price}` }));
+                }
+                await store.placeBid({
+                    auction_id: dbAuc.id,
+                    user_id: bidUser.id,
+                    user_name: bidUser.name,
+                    amount,
+                    accepted: false,
+                    bid_status: 'pending',
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({
+                    ok: true,
+                    pending: true,
+                    accepted: false,
+                    message: 'Sealed bid recorded. The seller may accept or decline.',
+                }));
+            }
+
+            // ── Dutch / open: instant win at or above current price ──
+            if (!auction) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Auction not found' }));
+            }
             if (auction.sold) {
                 res.writeHead(410, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'Auction has already ended' }));
             }
 
-            const bidUser = await getUserFromRequest(req);
             const accepted = amount >= auction.currentPrice;
-
-            // Persist bid to DB
             await store.placeBid({
                 auction_id: auction.auctionId,
                 user_id: bidUser?.id || null,
                 user_name: bidUser?.name || 'Anonymous',
                 amount,
                 accepted,
+                bid_status: accepted ? 'accepted' : 'active',
             });
 
             if (accepted) {
@@ -740,7 +864,6 @@ async function handleRequest(req, res) {
                 await store.sellAuction(auction.auctionId, amount, bidUser?.id || null);
                 console.log(`[bid] Item ${itemId} SOLD for $${amount} → DB`);
 
-                // Reset after 30s for demo
                 setTimeout(() => {
                     auction.currentPrice = auction.startPrice;
                     auction.sold = false;
@@ -785,14 +908,110 @@ async function handleRequest(req, res) {
             return res.end(JSON.stringify(bids));
         }
 
+        // ── GET /api/me/dashboard — Buyer collection + bids (DB) ──
+        if (pname === '/api/me/dashboard' && method === 'GET') {
+            const user = await getUserFromRequest(req);
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Not authenticated' }));
+            }
+            const collection = await store.getBuyerCollectionFromDb(user.id);
+            const snap = await store.getBuyerBidSnapshot(user.id);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                collection,
+                activeBids: snap.active,
+                wonAuctions: snap.won,
+            }));
+        }
+
+        // ── GET /api/seller/incoming-bids — Bids on my listings ──
+        if (pname === '/api/seller/incoming-bids' && method === 'GET') {
+            const user = await getUserFromRequest(req);
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Not authenticated' }));
+            }
+            const bids = await store.getIncomingBidsForSeller(user.id);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(bids));
+        }
+
+        // ── POST /api/seller/bids/:bidId/accept ─────────────────────
+        const sellerAcceptMatch = pname.match(/^\/api\/seller\/bids\/(\d+)\/accept$/);
+        if (sellerAcceptMatch && method === 'POST') {
+            const user = await getUserFromRequest(req);
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Not authenticated' }));
+            }
+            const bidId = parseInt(sellerAcceptMatch[1], 10);
+            const result = await store.sellerAcceptBid(user.id, bidId);
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            if (result.photo_id != null && auctionStates[result.photo_id]) {
+                auctionStates[result.photo_id].sold = true;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
+        // ── POST /api/seller/bids/:bidId/decline ───────────────────
+        const sellerDeclineMatch = pname.match(/^\/api\/seller\/bids\/(\d+)\/decline$/);
+        if (sellerDeclineMatch && method === 'POST') {
+            const user = await getUserFromRequest(req);
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Not authenticated' }));
+            }
+            const bidId = parseInt(sellerDeclineMatch[1], 10);
+            const result = await store.sellerDeclineBid(user.id, bidId);
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
+        // ── POST /api/seller/auctions/:photoId/end — End without sale
+        const sellerEndMatch = pname.match(/^\/api\/seller\/auctions\/(\d+)\/end$/);
+        if (sellerEndMatch && method === 'POST') {
+            const user = await getUserFromRequest(req);
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Not authenticated' }));
+            }
+            const photoId = parseInt(sellerEndMatch[1], 10);
+            const result = await store.sellerEndAuction(user.id, photoId);
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            if (auctionStates[photoId]) {
+                auctionStates[photoId].ended = true;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
         // ── POST /api/purchase/:id — Purchase an edition ─────────
         const purchaseMatch = pname.match(/^\/api\/purchase\/(\d+)$/);
         if (purchaseMatch && method === 'POST') {
             const photoId = parseInt(purchaseMatch[1], 10);
             const buyer = await getUserFromRequest(req);
             
-            // For demo: allow purchase even without valid server token
-            // In production, you'd want proper session management
+            // Prevent purchasing own content
+            if (buyer) {
+                const photo = await store.getPhotograph(photoId);
+                if (photo && (photo.artistId === buyer.id || photo.artist === buyer.name)) {
+                    res.writeHead(403, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'You cannot purchase your own content' }));
+                }
+            }
+            
             const buyerId = buyer?.id || null;
             
             const result = await store.purchaseEdition(photoId, buyerId);
@@ -843,9 +1062,196 @@ async function handleRequest(req, res) {
             }));
         }
 
+        // ── POST /api/likes/:id — Toggle like on a photo ─────────
+        const likeMatch = pname.match(/^\/api\/likes\/(\d+)$/);
+        if (likeMatch && method === 'POST') {
+            const photoId = parseInt(likeMatch[1], 10);
+            const user = await getUserFromRequest(req);
+            
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Authentication required' }));
+            }
+            
+            const result = await store.toggleLike(photoId, user.id);
+            const likeCount = await store.getLikesForPhoto(photoId);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ ...result, likeCount }));
+        }
+
+        // ── GET /api/likes/:id — Get like count and user's like status ─────────
+        if (likeMatch && method === 'GET') {
+            const photoId = parseInt(likeMatch[1], 10);
+            const user = await getUserFromRequest(req);
+            
+            const likeCount = await store.getLikesForPhoto(photoId);
+            const hasLiked = user ? await store.hasUserLiked(photoId, user.id) : false;
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ likeCount, hasLiked }));
+        }
+
+        // ── GET /api/comments/:id — Get comments for a photo ─────────
+        const commentsMatch = pname.match(/^\/api\/comments\/(\d+)$/);
+        if (commentsMatch && method === 'GET') {
+            const photoId = parseInt(commentsMatch[1], 10);
+            const comments = await store.getCommentsForPhoto(photoId);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(comments));
+        }
+
+        // ── POST /api/comments/:id — Add a comment to a photo ─────────
+        if (commentsMatch && method === 'POST') {
+            const photoId = parseInt(commentsMatch[1], 10);
+            const user = await getUserFromRequest(req);
+            
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Authentication required' }));
+            }
+            
+            const body = await readJSON(req);
+            const { content } = body;
+            
+            if (!content || content.trim().length === 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Comment content is required' }));
+            }
+            
+            if (content.length > 1000) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Comment too long (max 1000 characters)' }));
+            }
+            
+            const comment = await store.addComment(photoId, user.id, user.name, content);
+            
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(comment));
+        }
+
+        // ── DELETE /api/comments/:photoId/:commentId — Delete a comment ─────────
+        const deleteCommentMatch = pname.match(/^\/api\/comments\/(\d+)\/(\d+)$/);
+        if (deleteCommentMatch && method === 'DELETE') {
+            const commentId = parseInt(deleteCommentMatch[2], 10);
+            const user = await getUserFromRequest(req);
+            
+            if (!user) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Authentication required' }));
+            }
+            
+            const result = await store.deleteComment(commentId, user.id);
+            
+            if (!result.success) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
+        // ── GET /api/admin/stats — Admin dashboard stats ─────────
+        if (pname === '/api/admin/stats' && method === 'GET') {
+            const user = await getUserFromRequest(req);
+            
+            if (!user || user.role !== 'admin') {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Admin access required' }));
+            }
+            
+            const stats = await store.getAdminStats();
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(stats));
+        }
+
+        // ── GET /api/admin/users — All users with stats (admin) ─────────
+        if (pname === '/api/admin/users' && method === 'GET') {
+            const user = await getUserFromRequest(req);
+            
+            if (!user || user.role !== 'admin') {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Admin access required' }));
+            }
+            
+            const users = await store.getAllUsersWithStats();
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(users));
+        }
+
+        // ── GET /api/admin/engagement — Photo engagement stats (admin) ─────────
+        if (pname === '/api/admin/engagement' && method === 'GET') {
+            const user = await getUserFromRequest(req);
+            
+            if (!user || user.role !== 'admin') {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Admin access required' }));
+            }
+            
+            const engagement = await store.getPhotoEngagementStats();
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(engagement));
+        }
+
+        // ── DELETE /api/admin/users/:id — Delete a user (admin) ─────────
+        const deleteUserMatch = pname.match(/^\/api\/admin\/users\/(.+)$/);
+        if (deleteUserMatch && method === 'DELETE') {
+            const user = await getUserFromRequest(req);
+            
+            if (!user || user.role !== 'admin') {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Admin access required' }));
+            }
+            
+            const userId = deleteUserMatch[1];
+            const result = await store.deleteUser(userId);
+            
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
+        // ── DELETE /api/admin/photos/:id — Delete a photo (admin) ─────────
+        const deletePhotoMatch = pname.match(/^\/api\/admin\/photos\/(\d+)$/);
+        if (deletePhotoMatch && method === 'DELETE') {
+            const user = await getUserFromRequest(req);
+            
+            if (!user || user.role !== 'admin') {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Admin access required' }));
+            }
+            
+            const photoId = parseInt(deletePhotoMatch[1], 10);
+            
+            // Also remove from in-memory auction states
+            if (auctionStates[photoId]) {
+                delete auctionStates[photoId];
+            }
+            
+            const result = await store.deletePhoto(photoId);
+            
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: true }));
+        }
+
         // ── SPA Catch-All ──────────────────────────────────────
         if (method === 'GET' && !pname.startsWith('/api/')) {
-            return serveStatic(res, path.join(ROOT, 'index.html'));
+            const indexPath = HAS_DIST ? path.join(DIST_DIR, 'index.html') : path.join(ROOT, 'index.html');
+            return serveStatic(res, indexPath);
         }
 
         // ── 404 ────────────────────────────────────────────────

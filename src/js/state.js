@@ -163,7 +163,67 @@ export async function register(userData) {
     return data.user;
 }
 
+export async function loginWithGoogle() {
+    // Dynamically import Firebase module
+    const { signInWithGoogle, signOut: firebaseSignOut } = await import('./firebase.js');
+    
+    try {
+        const googleUser = await signInWithGoogle();
+        
+        // Send to our backend to create/link user
+        const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                uid: googleUser.uid,
+                email: googleUser.email,
+                name: googleUser.name,
+                photoURL: googleUser.photoURL,
+            }),
+        });
+
+        if (!res.ok) {
+            await firebaseSignOut();
+            const err = await res.json().catch(() => ({ error: 'Google login failed' }));
+            throw new Error(err.error || 'Google login failed');
+        }
+
+        const data = await res.json();
+        setState('auth', {
+            user: data.user,
+            token: data.token,
+            loggedIn: true,
+        });
+
+        // Claim any unclaimed photos for this user and refresh catalog
+        try {
+            await fetch('/api/claim-photos', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${data.token}` 
+                },
+                body: JSON.stringify({ userId: data.user.id, userName: data.user.name }),
+            });
+            const catalogRes = await fetch('/api/catalog');
+            if (catalogRes.ok) {
+                const freshCatalog = await catalogRes.json();
+                setState('catalog', freshCatalog);
+            }
+        } catch (e) {
+            console.warn('[loginWithGoogle] Failed to claim photos:', e);
+        }
+
+        return data.user;
+    } catch (error) {
+        console.error('[state] Google login error:', error);
+        throw error;
+    }
+}
+
 export function logout() {
+    // Also sign out from Firebase if applicable
+    import('./firebase.js').then(({ signOut }) => signOut()).catch(() => {});
     setState('auth', { user: null, token: null, loggedIn: false });
 }
 
@@ -173,6 +233,10 @@ export function isLoggedIn() {
 
 export function currentUser() {
     return _state.auth.user;
+}
+
+export function getAuthToken() {
+    return _state.auth.token;
 }
 
 export function requireAuth(role = null) {
@@ -214,6 +278,60 @@ export function winBid(itemId, title, artist, amount) {
     // Move from active to won
     setState('bids.active', _state.bids.active.filter(b => b.itemId !== itemId));
     setState('bids.won', [..._state.bids.won, { itemId, title, artist, amount, wonAt: Date.now() }]);
+}
+
+/** Merge server dashboard into local state (buyer). */
+export function applyDashboardPayload(data) {
+    if (!data) return;
+    const local = _state.collection || [];
+    const byId = new Map(local.map((c) => [c.itemId, c]));
+    for (const c of data.collection || []) {
+        const id = c.itemId;
+        if (!byId.has(id)) {
+            byId.set(id, {
+                itemId: id,
+                title: c.title,
+                artist: c.artist,
+                price: c.price,
+                license: c.license || 'commercial',
+                acquiredAt: c.acquiredAt || Date.now(),
+                color: c.color || '#888',
+            });
+        }
+    }
+    setState('collection', [...byId.values()]);
+
+    const active = (data.activeBids || []).map((r) => ({
+        bidId: r.id,
+        itemId: r.itemId,
+        amount: r.amount,
+        type: r.type || 'open',
+        placedAt: r.placed_at ? new Date(r.placed_at).getTime() : Date.now(),
+        bid_status: r.bid_status,
+        title: r.title,
+    }));
+    setState('bids.active', active);
+
+    const won = (data.wonAuctions || []).map((r) => ({
+        itemId: r.itemId,
+        title: r.title,
+        artist: r.artist,
+        amount: r.amount,
+        wonAt: r.wonAt ? new Date(r.wonAt).getTime() : Date.now(),
+    }));
+    setState('bids.won', won);
+}
+
+export async function syncBuyerDashboardFromApi() {
+    const token = _state.auth.token;
+    if (!token) return null;
+    const res = await fetch('/api/me/dashboard', {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    applyDashboardPayload(data);
+    return data;
 }
 
 // ─── Cart Actions ─────────────────────────────────────────
