@@ -55,14 +55,18 @@ export function render() {
         ` : `
           <div class="cv-dash-grid">
             ${collection.map(item => `
-              <div class="cv-collection-card">
-                <div class="cv-collection-card__thumb" style="background:linear-gradient(135deg,${item.color || '#333'},var(--color-gradient-end));"></div>
+              <a href="/gallery/${item.itemId}" class="cv-collection-card" style="text-decoration:none;color:inherit;">
+                <div class="cv-collection-card__thumb" style="background:linear-gradient(135deg,${item.color || '#333'},var(--color-gradient-end));position:relative;overflow:hidden;">
+                  <img src="/api/image-preview/${item.itemId}" alt="${item.title}"
+                    style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;"
+                    onerror="this.style.display='none'" />
+                </div>
                 <div>
                   <div class="cv-collection-card__title">${item.title}</div>
                   <div class="cv-collection-card__artist">${item.artist} · ${item.license} license</div>
                 </div>
                 <div class="cv-collection-card__price">$${(item.price || 0).toLocaleString()}</div>
-              </div>
+              </a>
             `).join('')}
           </div>
         `}

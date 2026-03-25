@@ -31,7 +31,11 @@ export function render({ id }) {
       <div class="cv-cards-grid">
         ${artist.works.map(item => `
           <a href="/gallery/${item.id}" style="text-decoration:none;color:inherit;">
-            <div style="aspect-ratio:4/3;background:linear-gradient(135deg, ${item.color || '#333'} 0%, var(--color-gradient-end) 100%);border-radius:var(--radius-lg);margin-bottom:var(--space-3);"></div>
+            <div style="aspect-ratio:4/3;background:linear-gradient(135deg, ${item.color || '#333'} 0%, var(--color-gradient-end) 100%);border-radius:var(--radius-lg);margin-bottom:var(--space-3);position:relative;overflow:hidden;">
+              <img src="/api/image-preview/${item.id}?v=${Date.now()}" loading="lazy" alt="${item.title}"
+                style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+                onerror="this.style.display='none'" />
+            </div>
             <h3 style="font-family:var(--font-display);font-size:var(--text-md);font-weight:600;color:var(--color-text-primary);margin-bottom:2px;">${item.title}</h3>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-2);">
               <span style="font-family:var(--font-mono);font-size:var(--text-sm);color:var(--color-accent);">$${item.price.toLocaleString()}</span>

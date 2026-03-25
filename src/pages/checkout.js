@@ -2,7 +2,7 @@
  * ChitraVithika — Checkout Page
  * Route: /checkout/:id
  */
-import { getCatalogItem, getState, clearCart, addToCollection, isLoggedIn } from '../js/state.js';
+import { getCatalogItem, getState, clearCart, addToCollection, isLoggedIn, setCatalog } from '../js/state.js';
 import { navigate } from '../js/router.js';
 
 export function render({ id }) {
@@ -83,9 +83,13 @@ export function render({ id }) {
         <div class="cv-checkout-summary">
           <div class="cv-checkout-summary__title">Order Summary</div>
           <div style="margin-bottom:var(--space-4);">
-            <div style="aspect-ratio:16/9;background:linear-gradient(135deg,${item.color || '#333'},var(--color-gradient-end));border-radius:var(--radius-md);margin-bottom:var(--space-3);"></div>
+            <div style="aspect-ratio:16/9;background:linear-gradient(135deg,${item.color || '#333'},var(--color-gradient-end));border-radius:var(--radius-md);margin-bottom:var(--space-3);position:relative;overflow:hidden;">
+              <img src="/api/image-preview/${item.id || id}" alt="${item.title || 'Photograph'}"
+                style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+                onerror="this.style.display='none'" />
+            </div>
             <h3 style="font-family:var(--font-display);font-size:var(--text-md);font-weight:600;color:var(--color-text-primary);">${item.title || 'Untitled'}</h3>
-            <p style="font-size:var(--text-xs);color:var(--color-text-tertiary);">${item.artist || 'Unknown'}</p>
+            <p style="font-size:var(--text-xs);color:var(--color-text-tertiary);">${item.artist || 'Anonymous'}</p>
           </div>
           <div class="cv-checkout-summary__row">
             <span style="color:var(--color-text-secondary);">License</span>
@@ -142,22 +146,52 @@ export function mount({ id }) {
         payBtn.disabled = true;
         payBtn.textContent = 'Processing…';
 
-        // Simulate payment processing
-        await new Promise(r => setTimeout(r, 1500));
-
         const selectedCard = licenseGrid?.querySelector('.cv-license-card.selected');
         const license = selectedCard?.dataset.license || 'personal';
         const price = parseInt(selectedCard?.dataset.price || item.price);
 
-        addToCollection({
-            itemId: item.id || id,
-            title: item.title || 'Untitled',
-            artist: item.artist || 'Unknown',
-            price,
-            license,
-            color: item.color,
-        });
-        clearCart();
+        // Call purchase API to decrement edition count
+        try {
+            const token = getState('auth.token');
+            
+            if (!token) {
+                throw new Error('Please log in again to complete your purchase');
+            }
+            
+            const purchaseRes = await fetch(`/api/purchase/${item.id || id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+            });
+
+            if (!purchaseRes.ok) {
+                const err = await purchaseRes.json().catch(() => ({ error: 'Purchase failed' }));
+                if (err.error === 'Authentication required') {
+                    throw new Error('Session expired. Please log out and log back in.');
+                }
+                throw new Error(err.error || 'Purchase failed');
+            }
+
+            const purchaseResult = await purchaseRes.json();
+
+            // Refresh catalog to get updated remaining counts
+            const catalogRes = await fetch('/api/catalog');
+            if (catalogRes.ok) {
+                const freshCatalog = await catalogRes.json();
+                setCatalog(freshCatalog);
+            }
+
+            addToCollection({
+                itemId: item.id || id,
+                title: item.title || 'Untitled',
+                artist: item.artist || 'Unknown',
+                price,
+                license,
+                color: item.color,
+            });
+            clearCart();
 
         // Show success
         document.querySelector('.cv-checkout-layout').style.display = 'none';
@@ -176,5 +210,11 @@ export function mount({ id }) {
         </div>
       </div>
     `;
+        } catch (err) {
+            console.error('[checkout] Purchase failed:', err);
+            errorEl.textContent = err.message || 'Purchase failed. Please try again.';
+            payBtn.disabled = false;
+            payBtn.textContent = 'Complete Purchase';
+        }
     });
 }

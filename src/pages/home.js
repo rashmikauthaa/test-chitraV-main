@@ -3,10 +3,44 @@
  * Route: /
  * Contains hero, gallery preview (exhibition), auction preview, artist preview, and submit CTA.
  */
-import { getCatalog, getArtists } from '../js/state.js';
+import { getCatalog, getArtists, isLoggedIn } from '../js/state.js';
 import { applyTheme, resetTheme } from '../js/themes.js';
 
 export function render() {
+  if (!isLoggedIn()) {
+    return `
+    <section class="cv-hero" aria-labelledby="hero-heading">
+      <div class="cv-hero__content">
+        <p class="cv-hero__eyebrow">Curated. Limited. Luminous.</p>
+        <h1 id="hero-heading" class="cv-hero__heading">
+          Photography<br>
+          <em>as a living investment</em>
+        </h1>
+        <p class="cv-hero__sub">
+          Sign in to explore the gallery, live auctions, artist profiles, and natural-language search — all reserved for members.
+        </p>
+        <div class="cv-hero__actions">
+          <a href="/login" class="cv-btn cv-btn--primary cv-btn--large">Sign in</a>
+          <a href="/register" class="cv-btn cv-btn--ghost cv-btn--large">Create an account</a>
+        </div>
+      </div>
+    </section>
+    <section class="cv-section cv-section--dark" style="text-align:center; padding:var(--space-16) var(--gutter); max-width:42rem; margin:0 auto;">
+      <h2 class="cv-section__title" style="justify-content:center;">Member access</h2>
+      <p class="cv-section__subtitle" style="margin:0 auto var(--space-4);">
+        The exhibition, auctions, and artist directory are not shown on the public home page. Create a free account to browse and bid.
+      </p>
+    </section>
+    <section class="cv-section" style="text-align:center; padding:var(--space-16) var(--gutter);">
+      <h2 class="cv-section__title" style="justify-content:center;">Submit Your Vision</h2>
+      <p class="cv-section__subtitle" style="margin:0 auto var(--space-8);">
+        Are you a photographer? Join ChitraVithika's curated roster and reach discerning collectors worldwide.
+      </p>
+      <a href="/submit" class="cv-btn cv-btn--primary cv-btn--large">Submit Work</a>
+    </section>
+  `;
+  }
+
   const catalog = getCatalog();
   const artists = getArtists();
   const totalEditions = catalog.reduce((sum, i) => sum + (i.remaining || 0), 0);
@@ -148,6 +182,10 @@ export function render() {
 }
 
 export function mount() {
+  if (!isLoggedIn()) {
+    return () => {};
+  }
+
   const catalog = getCatalog();
 
   // ── Populate gallery with photo-card elements (correct attributes) ──

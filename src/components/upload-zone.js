@@ -45,6 +45,8 @@ class UploadZone extends HTMLElement {
 
   get accept() { return this.getAttribute('accept') || '.jpg,.jpeg,.png,.webp'; }
   get maxSizeMb() { return parseInt(this.getAttribute('max-size-mb') || '50', 10); }
+  /** `light` = readable on pale backgrounds (e.g. submit page). Default `dark` for dark sections. */
+  get theme() { return (this.getAttribute('theme') || 'dark').toLowerCase(); }
 
   // ─── Public API ───────────────────────────────────────
   getFiles() { return [...this._stagedFiles]; }
@@ -74,6 +76,7 @@ class UploadZone extends HTMLElement {
   }
 
   _render() {
+    const light = this.theme === 'light';
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
@@ -89,14 +92,29 @@ class UploadZone extends HTMLElement {
           background: rgba(255,255,255,0.02);
         }
 
+        /* Light panel (e.g. submit page left column): strong contrast on pale backgrounds */
+        .uz-zone--light {
+          border-color: rgba(90, 78, 58, 0.35);
+          background: rgba(200, 169, 110, 0.08);
+        }
+
         .uz-zone.dragging {
           border-color: rgba(200,169,110,0.6);
           background: rgba(200,169,110,0.05);
         }
 
+        .uz-zone--light.dragging {
+          border-color: rgba(160, 130, 80, 0.85);
+          background: rgba(200, 169, 110, 0.18);
+        }
+
         .uz-zone.has-files { border-color: rgba(200,169,110,0.3); cursor: default; }
         .uz-zone.success   { border-color: rgba(76,175,129,0.5); background: rgba(76,175,129,0.03); }
         .uz-zone.error     { border-color: rgba(224,82,82,0.5);  background: rgba(224,82,82,0.03); }
+
+        .uz-zone--light.has-files { border-color: rgba(120, 100, 70, 0.45); }
+        .uz-zone--light.success   { border-color: rgba(46, 125, 72, 0.65); background: rgba(76, 175, 129, 0.1); }
+        .uz-zone--light.error     { border-color: rgba(200, 72, 72, 0.55); background: rgba(224, 82, 82, 0.08); }
 
         .uz-icon {
           width: 48px; height: 48px;
@@ -105,21 +123,37 @@ class UploadZone extends HTMLElement {
           transition: transform 0.2s ease, color 0.2s ease;
         }
 
+        .uz-zone--light .uz-icon {
+          color: #8a7349;
+        }
+
         .uz-zone.dragging .uz-icon { color: rgba(200,169,110,0.9); transform: scale(1.15); }
+
+        .uz-zone--light.dragging .uz-icon { color: #6b5a38; transform: scale(1.15); }
 
         .uz-title {
           font-family: 'Playfair Display', Georgia, serif;
-          font-size: 1.15rem;
-          font-weight: 600;
-          color: #f0ede8;
-          margin-bottom: 6px;
+          font-size: 1.25rem;
+          font-weight: 700;
+          color: #d4b896;
+          margin-bottom: 8px;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .uz-zone--light .uz-title {
+          color: #1c1917;
+          text-shadow: none;
         }
 
         .uz-subtitle {
-          font-size: 0.78rem;
-          color: #6a6560;
+          font-size: 0.85rem;
+          color: #b8a888;
           margin-bottom: 20px;
           line-height: 1.6;
+        }
+
+        .uz-zone--light .uz-subtitle {
+          color: #44403c;
         }
 
         .uz-browse-btn {
@@ -135,18 +169,36 @@ class UploadZone extends HTMLElement {
           letter-spacing: 0.1em;
           text-transform: uppercase;
           cursor: pointer;
-          transition: background 0.2s ease;
+          transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
           outline: none;
         }
 
-        .uz-browse-btn:hover  { background: rgba(200,169,110,0.18); }
-        .uz-browse-btn:focus-visible { outline: 2px solid #c8a96e; outline-offset: 2px; }
+        .uz-zone--light .uz-browse-btn {
+          border: 1px solid #7d6a48;
+          background: #c8a96e;
+          color: #1c1917;
+        }
 
-        /* File input — visually hidden */
+        .uz-browse-btn:hover  { background: rgba(200,169,110,0.18); }
+        .uz-zone--light .uz-browse-btn:hover {
+          background: #b89a5f;
+          border-color: #6b5a38;
+          color: #0c0a09;
+        }
+        .uz-browse-btn:focus-visible { outline: 2px solid #c8a96e; outline-offset: 2px; }
+        .uz-zone--light .uz-browse-btn:focus-visible { outline: 2px solid #5c4d32; outline-offset: 2px; }
+
+        /* File input — completely hidden visually */
         #uz-file-input {
-          position: absolute; inset: 0;
-          opacity: 0; cursor: pointer;
-          width: 100%; height: 100%;
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
         }
 
         .uz-zone.has-files #uz-file-input { display: none; }
@@ -177,6 +229,8 @@ class UploadZone extends HTMLElement {
           color: #8a8580;
         }
 
+        .uz-zone--light .uz-preview-meta { color: #57534e; }
+
         .uz-preview-name {
           font-family: 'JetBrains Mono', monospace;
           font-size: 0.72rem;
@@ -187,11 +241,15 @@ class UploadZone extends HTMLElement {
           white-space: nowrap;
         }
 
+        .uz-zone--light .uz-preview-name { color: #6b5a38; }
+
         .uz-preview-size {
           font-family: 'JetBrains Mono', monospace;
           font-size: 0.68rem;
           color: #6a6560;
         }
+
+        .uz-zone--light .uz-preview-size { color: #57534e; }
 
         .uz-remove-btn {
           padding: 4px 14px;
@@ -221,10 +279,12 @@ class UploadZone extends HTMLElement {
 
         .uz-zone.success .uz-feedback { color: #4caf81; }
         .uz-zone.error   .uz-feedback { color: #e05252; }
+        .uz-zone--light.success .uz-feedback { color: #166534; }
+        .uz-zone--light.error   .uz-feedback { color: #b91c1c; }
         .uz-feedback:empty            { display: none; }
       </style>
 
-      <div class="uz-zone" id="uz-zone" role="region"
+      <div class="uz-zone ${light ? 'uz-zone--light' : ''}" id="uz-zone" role="region"
            aria-label="Upload your photograph. Drag and drop or click to browse."
            tabindex="0">
 

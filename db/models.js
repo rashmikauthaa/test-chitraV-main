@@ -56,7 +56,9 @@ const photographSchema = new Schema({
     color: { type: String, default: '#888888' },
     filename: { type: String, default: null },
     saved_as: { type: String, default: null },
+    gridfs_id: { type: Schema.Types.ObjectId, default: null },
     file_size: { type: Number, default: null },
+    mime_type: { type: String, default: 'image/jpeg' },
     exif: {
         camera: { type: String, default: null },
         lens: { type: String, default: null },

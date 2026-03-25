@@ -102,20 +102,31 @@ export function render() {
 }
 
 function renderCard(item) {
+  const isSoldOut = item.remaining <= 0;
+  const editionLabel = isSoldOut ? 'Sold Out' :
+    item.remaining === 1 ? 'Last Edition' :
+    item.remaining <= 3 ? `Only ${item.remaining}` :
+    `${item.remaining}/${item.editions}`;
+  
+  const editionBadgeStyle = isSoldOut
+    ? 'background:rgba(224,82,82,0.2);border:1px solid rgba(224,82,82,0.5);color:#e05252;'
+    : 'background:rgba(200,169,110,0.15);border:1px solid rgba(200,169,110,0.35);color:#c8a96e;';
+
   return `
-      <a href="/gallery/${item.id}" class="cv-gallery-card" data-category="${item.category}" data-price="${item.price}" data-editions="${item.remaining}" data-artist="${item.artist}" data-title="${item.title}" data-id="${item.id}" style="text-decoration:none;color:inherit;">
+      <a href="/gallery/${item.id}" class="cv-gallery-card ${isSoldOut ? 'cv-gallery-card--sold-out' : ''}" data-category="${item.category}" data-price="${item.price}" data-editions="${item.remaining}" data-artist="${item.artist}" data-title="${item.title}" data-id="${item.id}" style="text-decoration:none;color:inherit;${isSoldOut ? 'opacity:0.7;' : ''}">
         <div class="cv-gallery-card__image" style="aspect-ratio:4/3;background:linear-gradient(135deg, ${item.color || '#333'}44, var(--color-gradient-end));border-radius:var(--radius-lg);position:relative;overflow:hidden;">
           <img src="/api/image-preview/${item.id}" loading="lazy" alt="${item.title}"
-            style="width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity 0.6s ease;"
+            style="width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity 0.6s ease;${isSoldOut ? 'filter:grayscale(0.5);' : ''}"
             onload="this.style.opacity='1'"
             onerror="this.style.display='none'" />
           <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(0,0,0,0.6) 100%);pointer-events:none;"></div>
+          ${isSoldOut ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);"><span style="font-family:var(--font-display);font-size:1.5rem;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:0.1em;text-shadow:0 2px 8px rgba(0,0,0,0.5);">Sold Out</span></div>' : ''}
           <div style="position:absolute;top:10px;left:10px;">
             <span style="padding:3px 10px;border-radius:999px;background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.1);font-family:var(--font-mono);font-size:0.62rem;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.7);">${item.category}</span>
           </div>
           <div style="position:absolute;top:10px;right:10px;">
-            <span style="padding:3px 10px;border-radius:999px;background:rgba(200,169,110,0.15);backdrop-filter:blur(8px);border:1px solid rgba(200,169,110,0.35);font-family:var(--font-mono);font-size:0.6rem;font-weight:600;color:#c8a96e;">
-              ${item.remaining <= 1 ? 'Last Edition' : item.remaining <= 3 ? `Only ${item.remaining}` : `${item.remaining}/${item.editions}`}
+            <span style="padding:3px 10px;border-radius:999px;${editionBadgeStyle}backdrop-filter:blur(8px);font-family:var(--font-mono);font-size:0.6rem;font-weight:600;">
+              ${editionLabel}
             </span>
           </div>
         </div>
@@ -123,8 +134,8 @@ function renderCard(item) {
           <h3 style="font-family:var(--font-display);font-size:var(--text-md);font-weight:600;color:var(--color-text-primary);margin-bottom:2px;">${item.title}</h3>
           <p style="font-size:var(--text-xs);color:var(--color-text-tertiary);">${item.artist}</p>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-2);">
-            <span style="font-family:var(--font-mono);font-size:var(--text-sm);color:var(--color-accent);">$${item.price.toLocaleString()}</span>
-            <span style="font-size:var(--text-xs);color:var(--color-text-tertiary);">${item.remaining}/${item.editions} left</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-sm);color:${isSoldOut ? 'var(--color-text-tertiary)' : 'var(--color-accent)'};">${isSoldOut ? 'Sold' : '$' + item.price.toLocaleString()}</span>
+            <span style="font-size:var(--text-xs);color:var(--color-text-tertiary);">${isSoldOut ? 'All editions sold' : item.remaining + '/' + item.editions + ' left'}</span>
           </div>
         </div>
       </a>`;

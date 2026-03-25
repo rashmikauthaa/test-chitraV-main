@@ -4,24 +4,16 @@
  *
  * Features:
  *   - Email/password authentication
- *   - Rotating "Best of ChitraVithika" gallery background (or gradient fallback)
+ *   - Gradient background
  */
-import { login, isLoggedIn, currentUser, getCatalog } from '../js/state.js';
+import { login, isLoggedIn, currentUser } from '../js/state.js';
 import { navigate } from '../js/router.js';
+import { getNextPathAfterAuth } from '../js/auth-routes.js';
 
-const FALLBACK_BG_COLORS = ['#4A148C', '#E040FB', '#0D47A1', '#F9A825', '#00BCD4', '#1B5E20'];
+const BG_COLORS = ['#4A148C', '#E040FB', '#0D47A1', '#F9A825', '#00BCD4', '#1B5E20'];
 
 function buildAuthBackgroundSlides() {
-    const catalog = getCatalog();
-    const bgItems = catalog.slice(0, 6);
-    if (bgItems.length) {
-        return bgItems.map((item, i) =>
-            `<div class="cv-auth-bg__slide ${i === 0 ? 'active' : ''}"
-       style="background-image:url('/api/image-preview/${item.id}');"
-       data-slide="${i}"></div>`
-        ).join('');
-    }
-    return FALLBACK_BG_COLORS.map((color, i) =>
+    return BG_COLORS.map((color, i) =>
         `<div class="cv-auth-bg__slide ${i === 0 ? 'active' : ''}"
       style="background:linear-gradient(135deg,${color} 0%, var(--color-gradient-end) 100%);"
       data-slide="${i}"></div>`
@@ -81,7 +73,7 @@ export function render() {
         </form>
 
         <div class="cv-auth-card__footer">
-          Don't have an account? <a href="/register">Create one</a>
+          Don't have an account? <a href="/register" id="login-to-register">Create one</a>
         </div>
       </div>
     </div>
@@ -97,9 +89,14 @@ function dashForUser(user) {
 export function mount() {
     if (isLoggedIn()) {
         const user = currentUser();
-        setTimeout(() => navigate(dashForUser(user), { replace: true }), 50);
+        const next = getNextPathAfterAuth();
+        const dest = next || dashForUser(user);
+        setTimeout(() => navigate(dest, { replace: true }), 50);
         return;
     }
+
+    const reg = document.getElementById('login-to-register');
+    if (reg && window.location.search) reg.setAttribute('href', '/register' + window.location.search);
 
     const slides = document.querySelectorAll('.cv-auth-bg__slide');
     if (slides.length > 1) {
@@ -128,7 +125,8 @@ export function mount() {
             const user = await login(email, password);
             const authBtn = document.getElementById('btn-auth');
             if (authBtn) authBtn.textContent = user.name;
-            navigate(dashForUser(user));
+            const next = getNextPathAfterAuth();
+            navigate(next || dashForUser(user));
         } catch (err) {
             if (errorEl) errorEl.textContent = err.message;
             submitBtn.disabled = false;

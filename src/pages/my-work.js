@@ -5,7 +5,7 @@
  * Shows the logged-in photographer's uploaded listings with
  * statistics (views, favorites, sales, revenue).
  */
-import { isLoggedIn, currentUser, getState } from '../js/state.js';
+import { isLoggedIn, currentUser, getCatalog } from '../js/state.js';
 import { navigate } from '../js/router.js';
 
 export function render() {
@@ -14,7 +14,8 @@ export function render() {
     }
 
     const user = currentUser();
-    const portfolio = (getState('portfolio') || []).filter(w => w.artistId === user.id);
+    const catalog = getCatalog();
+    const portfolio = catalog.filter(w => w.artistId === user.id);
 
     const totalRevenue = portfolio.reduce((s, w) => s + (w.revenue || 0), 0);
     const totalSales = portfolio.reduce((s, w) => s + (w.sales || 0), 0);
@@ -64,8 +65,11 @@ export function render() {
       ` : `
         <div class="cv-mywork-grid">
           ${portfolio.map(work => `
-            <div class="cv-mywork-card" data-work-id="${work.id}">
-              <div class="cv-mywork-card__image" style="background:linear-gradient(135deg, rgba(200,169,110,0.15), rgba(200,169,110,0.02))">
+            <a href="/gallery/${work.id}" class="cv-mywork-card" data-work-id="${work.id}" style="text-decoration:none;color:inherit;">
+              <div class="cv-mywork-card__image" style="background:linear-gradient(135deg, rgba(200,169,110,0.15), rgba(200,169,110,0.02));position:relative;overflow:hidden;">
+                <img src="/api/image-preview/${work.id}" alt="${work.title}" loading="lazy"
+                  style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+                  onerror="this.style.display='none'" />
                 <div class="cv-mywork-card__category">${work.category}</div>
                 ${work.remaining < work.editions ?
             `<div class="cv-mywork-card__sold-badge">${work.editions - work.remaining} sold</div>` : ''}
@@ -80,10 +84,10 @@ export function render() {
                 </div>
                 <div class="cv-mywork-card__price-row">
                   <span class="cv-mywork-card__price">$${work.price.toLocaleString()}</span>
-                  <span class="cv-mywork-card__date">Listed ${new Date(work.listedAt).toLocaleDateString()}</span>
+                  <span class="cv-mywork-card__date">Listed ${work.createdAt ? new Date(work.createdAt).toLocaleDateString() : 'recently'}</span>
                 </div>
               </div>
-            </div>
+            </a>
           `).join('')}
         </div>
       `}

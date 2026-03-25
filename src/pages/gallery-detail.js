@@ -20,6 +20,7 @@ export function render({ id }) {
   const artistSlug = item.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const exif = item.exif || {};
   const hasExif = exif.camera || exif.lens || exif.iso || exif.aperture || exif.shutter;
+  const isSoldOut = item.remaining <= 0;
 
   return `
     <div class="cv-page-container">
@@ -89,6 +90,12 @@ export function render({ id }) {
           </div>
           ` : ''}
 
+          ${isSoldOut ? `
+          <div class="cv-detail__sold-out-block" style="padding:var(--space-6);background:rgba(224,82,82,0.08);border:1px solid rgba(224,82,82,0.3);border-radius:var(--radius-lg);text-align:center;">
+            <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;color:#e05252;margin-bottom:var(--space-2);">SOLD OUT</div>
+            <div style="font-size:var(--text-sm);color:var(--color-text-tertiary);">All ${item.editions} editions have been acquired.</div>
+          </div>
+          ` : `
           <div class="cv-detail__price-block">
             <div class="cv-detail__price">$${item.price.toLocaleString()}</div>
             <div class="cv-detail__price-hint">Instant acquisition price (Personal License)</div>
@@ -98,6 +105,7 @@ export function render({ id }) {
             <button class="cv-btn cv-btn--primary cv-btn--large" id="btn-acquire" style="flex:1;">Acquire Now</button>
             <a href="/auctions/open/${item.id}" class="cv-btn cv-btn--ghost cv-btn--large">Bid in Auction</a>
           </div>
+          `}
 
           <div style="padding:var(--space-4);background:var(--color-surface);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);">
             <p style="font-size:var(--text-xs);color:var(--color-text-tertiary);line-height:1.7;">

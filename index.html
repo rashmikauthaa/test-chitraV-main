@@ -13,6 +13,18 @@
       }
     })();
   </script>
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('cv_state');
+        if (!raw) return;
+        var s = JSON.parse(raw);
+        if (s.auth && s.auth.loggedIn && s.auth.user) {
+          document.documentElement.classList.add('cv-logged-in');
+        }
+      } catch (e) { }
+    })();
+  </script>
   <!--
     ╔══════════════════════════════════════════════════════════╗
     ║  ChitraVithika — Ambient Editorial Photography Marketplace ║
@@ -202,22 +214,23 @@
           <span class="cv-brand__tagline">Fine Art Photography</span>
         </a>
 
-        <!-- Primary Navigation -->
+        <!-- Primary Navigation: members see full list; guests see Submit, Join, About -->
         <nav class="cv-nav" aria-label="Primary navigation">
-          <a href="/gallery" class="cv-nav__link" data-nav="gallery">Gallery</a>
-          <a href="/auctions" class="cv-nav__link" data-nav="auctions">Auctions</a>
-          <a href="/artists" class="cv-nav__link" data-nav="artists">Artists</a>
+          <a href="/gallery" class="cv-nav__link cv-nav__link--member" data-nav="gallery">Gallery</a>
+          <a href="/auctions" class="cv-nav__link cv-nav__link--member" data-nav="auctions">Auctions</a>
+          <a href="/artists" class="cv-nav__link cv-nav__link--member" data-nav="artists">Artists</a>
           <a href="/submit" class="cv-nav__link" data-nav="submit">Submit Work</a>
+          <a href="/register" class="cv-nav__link cv-nav__link--guest-only">Join</a>
           <a href="/about" class="cv-nav__link" data-nav="about">About</a>
         </nav>
 
         <!-- Header Actions -->
         <div class="cv-header__actions">
-          <liquid-button id="btn-search-toggle" variant="ghost" aria-label="Toggle search panel" aria-expanded="false"
-            aria-controls="cv-search-panel">
+          <liquid-button id="btn-search-toggle" class="cv-header__action--member" variant="ghost"
+            aria-label="Toggle search panel" aria-expanded="false" aria-controls="cv-search-panel">
             Search
           </liquid-button>
-          <liquid-button id="btn-collect" variant="accent" aria-label="Browse gallery">
+          <liquid-button id="btn-collect" class="cv-header__action--member" variant="accent" aria-label="Browse gallery">
             Browse
           </liquid-button>
           <button type="button" id="btn-theme-toggle" class="cv-theme-toggle" aria-label="Switch to light mode"
@@ -308,10 +321,11 @@
         </div>
 
         <nav class="cv-footer__nav" aria-label="Footer navigation">
-          <a href="/gallery">Gallery</a>
-          <a href="/auctions">Auctions</a>
-          <a href="/artists">Artists</a>
+          <a href="/gallery" class="cv-footer__link--member">Gallery</a>
+          <a href="/auctions" class="cv-footer__link--member">Auctions</a>
+          <a href="/artists" class="cv-footer__link--member">Artists</a>
           <a href="/submit">Submit</a>
+          <a href="/register" class="cv-footer__link--guest-only">Join</a>
           <a href="/about">About</a>
           <a href="/legal/licensing">Licensing</a>
         </nav>

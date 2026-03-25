@@ -13,6 +13,14 @@ import { isLoggedIn, currentUser, getState, setState, setCatalog } from '../js/s
 import { navigate } from '../js/router.js';
 import { applyTheme, resetTheme } from '../js/themes.js';
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export function render() {
   const user = currentUser();
   const userName = user?.name || 'Artist';
@@ -30,7 +38,7 @@ export function render() {
           </div>
         </div>
       ` : `
-        <div class="cv-submit-layout">
+        <div class="cv-submit-layout" id="submit-layout">
 
           <!-- LEFT: Image Upload -->
           <div class="cv-submit-image-panel">
@@ -41,6 +49,7 @@ export function render() {
             </div>
             <upload-zone
               id="submit-upload"
+              theme="light"
               accept=".jpg,.jpeg,.png,.webp"
               max-size-mb="50">
             </upload-zone>
@@ -61,7 +70,7 @@ export function render() {
                 <div class="cv-form-group">
                   <label for="submit-desc" class="cv-form-label">Description</label>
                   <textarea id="submit-desc" name="description" class="cv-form-textarea"
-                            placeholder="Describe your photograph — mood, technique, story behind the shot…"
+                            placeholder="Describe your photograph — mood, technique, story behind the shot..."
                             rows="3"></textarea>
                 </div>
 
@@ -124,7 +133,7 @@ export function render() {
               <div id="submit-error" class="cv-form-error" role="alert"></div>
 
               <button type="submit" class="cv-btn cv-btn--primary cv-btn--full cv-btn--large" id="submit-btn" disabled>
-                <span class="cv-btn__icon">✦</span>
+                <span class="cv-btn__icon">*</span>
                 List for Sale
               </button>
 
@@ -136,7 +145,7 @@ export function render() {
           </div>
         </div>
 
-        <div id="submit-success" role="alert"></div>
+        <div id="submit-success" class="cv-submit-success-container" role="alert"></div>
       `}
     </div>
   `;
@@ -185,7 +194,7 @@ export function mount() {
 
     errorEl.textContent = '';
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="cv-btn__icon">⏳</span> Listing…';
+    submitBtn.textContent = 'Listing...';
 
     const description = form.elements['description'].value.trim();
     const category = form.elements['category'].value;
@@ -194,7 +203,7 @@ export function mount() {
     const floor = parseFloat(form.elements['floor'].value) || 500;
     const tags = form.elements['tags'].value.split(',').map(t => t.trim()).filter(Boolean);
 
-    // Upload file + all metadata to /api/upload — backend writes to DB
+    // Upload file + all metadata to /api/upload - backend writes to DB
     try {
       const files = uploadZone.getFiles();
       const formData = new FormData();
@@ -210,7 +219,7 @@ export function mount() {
       const token = getState('auth.token');
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData, headers });
-      if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+      if (!uploadRes.ok) throw new Error('Upload failed: ' + uploadRes.status);
       const uploadResult = await uploadRes.json();
 
       // Refresh catalog cache so new listing appears in Gallery/Auctions immediately
@@ -224,39 +233,41 @@ export function mount() {
         console.warn('[submit] Catalog refresh failed:', e);
       }
 
-      // Show success
-      uploadZone.showSuccess();
-      form.style.display = 'none';
-
+      // Success: completely replace page content with just the success card
       const uploadedItem = uploadResult.uploaded?.[0];
       const photoId = uploadedItem?.id;
       const displayTitle = title || uploadedItem?.filename || 'Your photograph';
 
+      // Hide the entire layout (upload zone + form)
+      const layoutEl = document.getElementById('submit-layout');
+      if (layoutEl) layoutEl.remove();
+
+      // Show success card
       const successEl = document.getElementById('submit-success');
       if (successEl) {
-        successEl.innerHTML = `
-                  <div class="cv-submit-success">
-                    ${photoId ? `
-                    <div style="max-width:400px;margin:0 auto var(--space-6);border-radius:var(--radius-lg);overflow:hidden;aspect-ratio:4/3;background:var(--color-placeholder-muted);">
-                      <img src="/api/image-preview/${photoId}" alt="${displayTitle}"
-                        style="width:100%;height:100%;object-fit:cover;display:block;" />
-                    </div>` : ''}
-                    <div class="cv-submit-success__icon">🎉</div>
-                    <h2 class="cv-submit-success__title">Listed Successfully!</h2>
-                    <p class="cv-submit-success__text">"${displayTitle}" is now live on ChitraVithika. Collectors can discover and acquire it.</p>
-                    <div class="cv-submit-success__actions">
-                      <a href="/gallery/${photoId || ''}" class="cv-btn cv-btn--primary">View Listing</a>
-                      <a href="/my-work" class="cv-btn cv-btn--ghost">My Portfolio</a>
-                      <a href="/submit" class="cv-btn cv-btn--ghost">List Another</a>
-                    </div>
-                  </div>
-                `;
+        successEl.innerHTML = '<div class="cv-submit-success">' +
+          (photoId ? '<div class="cv-submit-success__thumb"><img src="/api/image-preview/' + photoId + '" alt="' + escapeHtml(displayTitle) + '" /></div>' : '') +
+          '<div class="cv-submit-success__icon" aria-hidden="true">&#127881;</div>' +
+          '<h2 class="cv-submit-success__title">Listed successfully</h2>' +
+          '<p class="cv-submit-success__text"><strong>' + escapeHtml(displayTitle) + '</strong> is live. Collectors can discover and acquire it.</p>' +
+          '<div class="cv-submit-success__actions">' +
+          '<a href="/gallery/' + (photoId || '') + '" class="cv-btn cv-btn--primary">View listing</a>' +
+          '<a href="/my-work" class="cv-btn cv-btn--ghost">My portfolio</a>' +
+          '<a href="/submit" class="cv-btn cv-btn--ghost">List another</a>' +
+          '</div>' +
+          '</div>';
       }
+
+      // Add class for styling
+      const pageEl = document.querySelector('.cv-submit-page');
+      if (pageEl) pageEl.classList.add('cv-submit-page--listed');
+
+      window.scrollTo({ top: 0, behavior: 'instant' });
     } catch (err) {
       console.error('[submit] Failed:', err);
-      errorEl.textContent = `Listing failed: ${err.message}`;
+      errorEl.textContent = 'Listing failed: ' + err.message;
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<span class="cv-btn__icon">✦</span> List for Sale';
+      submitBtn.textContent = 'List for Sale';
     }
   });
 

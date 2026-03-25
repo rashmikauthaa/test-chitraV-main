@@ -10,7 +10,8 @@
  */
 
 import { setCatalog, isLoggedIn, currentUser, subscribe, logout } from '/src/js/state.js';
-import { addRoute, initRouter, navigate } from '/src/js/router.js';
+import { addRoute, initRouter, navigate, setRouteGuard } from '/src/js/router.js';
+import { requiresAuth, loginUrlFor } from '/src/js/auth-routes.js';
 
 // ─── Route Registration ──────────────────────────────────────
 addRoute('/', () => import('/src/pages/home.js'));
@@ -61,6 +62,7 @@ addRoute('/legal/licensing', () => import('/src/pages/licensing.js'));
     }
 
     // 4. Wire persistent header interactions
+    syncAuthNavClass();
     wireSearchPanel();
     wireHeaderAuth();
     wireBrowseButton();
@@ -72,7 +74,24 @@ addRoute('/legal/licensing', () => import('/src/pages/licensing.js'));
     }
     wireGlobalEvents();
 
-    // 5. Mark app as loaded, then initialize router
+    // 5. Route guard: guests cannot open gallery, auctions, artists (redirect to login)
+    setRouteGuard((pathname) => {
+        if (isLoggedIn()) return null;
+        if (pathname === '/login' || pathname === '/register') return null;
+        if (!requiresAuth(pathname)) return null;
+        return loginUrlFor(pathname);
+    });
+
+    let _wasLogged = isLoggedIn();
+    subscribe('auth', () => {
+        const now = isLoggedIn();
+        if (_wasLogged && !now && requiresAuth(window.location.pathname)) {
+            navigate('/', { replace: true });
+        }
+        _wasLogged = now;
+    });
+
+    // 6. Mark app as loaded, then initialize router
     const root = document.getElementById('cv-app-root');
     if (root) root.classList.remove('loading');
 
@@ -80,6 +99,15 @@ addRoute('/legal/licensing', () => import('/src/pages/licensing.js'));
 
     console.log('[app] ChitraVithika SPA ready 🌐');
 })();
+
+// ─────────────────────────────────────────────────────────────
+// NAV VISIBILITY (guest vs member)
+// ─────────────────────────────────────────────────────────────
+
+function syncAuthNavClass() {
+    if (isLoggedIn()) document.documentElement.classList.add('cv-logged-in');
+    else document.documentElement.classList.remove('cv-logged-in');
+}
 
 // ─────────────────────────────────────────────────────────────
 // PERSISTENT HEADER: AUTH BUTTON
@@ -91,7 +119,10 @@ function wireHeaderAuth() {
     if (!authBtn) return;
 
     updateAuthButton(authBtn, logoutBtn);
-    subscribe('auth', () => updateAuthButton(authBtn, logoutBtn));
+    subscribe('auth', () => {
+        updateAuthButton(authBtn, logoutBtn);
+        syncAuthNavClass();
+    });
 
     authBtn.addEventListener('click', () => {
         if (isLoggedIn()) {
@@ -116,7 +147,7 @@ function updateAuthButton(btn, logoutBtn) {
         btn.textContent = user.name;
         if (logoutBtn) logoutBtn.style.display = '';
     } else {
-        btn.textContent = 'Login';
+        btn.textContent = 'Sign in';
         if (logoutBtn) logoutBtn.style.display = 'none';
     }
 }
@@ -128,7 +159,13 @@ function updateAuthButton(btn, logoutBtn) {
 function wireBrowseButton() {
     const btn = document.getElementById('btn-collect');
     if (!btn) return;
-    btn.addEventListener('click', () => navigate('/gallery'));
+    btn.addEventListener('click', () => {
+        if (!isLoggedIn()) {
+            navigate(loginUrlFor('/gallery'));
+            return;
+        }
+        navigate('/gallery');
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -219,6 +256,10 @@ function wireSearchPanel() {
     }
 
     toggleBtn.addEventListener('click', () => {
+        if (!isLoggedIn()) {
+            navigate(loginUrlFor('/'));
+            return;
+        }
         const isHidden = panel.getAttribute('aria-hidden') !== 'false';
         if (isHidden) openPanel(); else closePanel();
     });
@@ -237,6 +278,10 @@ function wireSearchPanel() {
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!isLoggedIn()) {
+            navigate(loginUrlFor('/'));
+            return;
+        }
         const query = input?.value.trim();
         if (!query) return;
 

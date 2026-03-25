@@ -3,6 +3,8 @@
  * Exposes a stable store API used by server.js.
  *
  * IMPORTANT: call  await store.connect()  before using any other method.
+ * 
+ * Images are stored in MongoDB using GridFS (no filesystem storage).
  */
 
 'use strict';
@@ -10,7 +12,11 @@
 require('dotenv').config();
 
 const mongoose = require('mongoose');
+const { GridFSBucket } = require('mongodb');
+const { Readable } = require('stream');
 const { User, Photograph, Auction, Bid, getNextSequence } = require('./models');
+
+let gridFSBucket = null;
 
 // ─── Config ──────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/chitravithika';
@@ -23,7 +29,14 @@ const CONNECT_OPTS = {
 
 async function connect() {
     await mongoose.connect(MONGO_URI, CONNECT_OPTS);
+    
+    // Initialize GridFS bucket for image storage
+    gridFSBucket = new GridFSBucket(mongoose.connection.db, {
+        bucketName: 'images'
+    });
+    
     console.log(`[db] Connected to MongoDB: ${MONGO_URI.replace(/\/\/([^:@]+):([^@]+)@/, '//***:***@')}`);
+    console.log('[db] GridFS bucket initialized for image storage');
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -35,7 +48,7 @@ function formatPhoto(doc) {
         id: d._id,
         title: d.title,
         description: d.description,
-        artist: d._artist_name || d.artist,
+        artist: d._artist_name || d.artist || 'Anonymous',
         artistId: d.artist_id,
         category: d.category,
         tags: d.tags || [],
@@ -47,7 +60,10 @@ function formatPhoto(doc) {
         height: d.height,
         color: d.color,
         filename: d.saved_as || d.filename,
+        saved_as: d.saved_as || null,
+        gridfs_id: d.gridfs_id || null,
         fileSize: d.file_size,
+        mimeType: d.mime_type || 'image/jpeg',
         exif: d.exif || { camera: null, lens: null, iso: null, aperture: null, shutter: null },
         createdAt: d.created_at,
     };
@@ -130,7 +146,9 @@ module.exports = {
             color: data.color || '#888888',
             filename: data.filename || null,
             saved_as: data.saved_as || null,
+            gridfs_id: data.gridfs_id || null,
             file_size: data.file_size || null,
+            mime_type: data.mime_type || 'image/jpeg',
             exif: {
                 camera: data.exif_camera || null,
                 lens: data.exif_lens || null,
@@ -259,6 +277,107 @@ module.exports = {
             accepted: !!data.accepted,
         });
         return doc._id;
+    },
+
+    // Purchase - decrement remaining editions
+    async purchaseEdition(photoId, buyerId) {
+        const photo = await Photograph.findById(photoId);
+        if (!photo) return { success: false, error: 'Photo not found' };
+        if (photo.remaining <= 0) return { success: false, error: 'Sold out' };
+        
+        photo.remaining = photo.remaining - 1;
+        await photo.save();
+        
+        return { 
+            success: true, 
+            remaining: photo.remaining, 
+            soldOut: photo.remaining === 0 
+        };
+    },
+
+    // Claim unclaimed photos for a user
+    async claimUnclaimedPhotos(userId, userName) {
+        const result = await Photograph.updateMany(
+            { artist_id: null },
+            { $set: { artist_id: userId, artist: userName } }
+        );
+        return { modified: result.modifiedCount };
+    },
+
+    // ─── GridFS Image Storage ─────────────────────────────────────
+
+    // Upload image buffer to GridFS, returns the GridFS file ID
+    async uploadImageToGridFS(buffer, filename, mimeType = 'image/jpeg') {
+        if (!gridFSBucket) {
+            throw new Error('GridFS bucket not initialized. Call connect() first.');
+        }
+
+        return new Promise((resolve, reject) => {
+            const uploadStream = gridFSBucket.openUploadStream(filename, {
+                contentType: mimeType,
+                metadata: {
+                    uploadedAt: new Date(),
+                    originalName: filename,
+                }
+            });
+
+            const readableStream = Readable.from(buffer);
+            
+            readableStream.pipe(uploadStream)
+                .on('error', reject)
+                .on('finish', () => {
+                    console.log(`[gridfs] Uploaded: ${filename} → ${uploadStream.id}`);
+                    resolve(uploadStream.id);
+                });
+        });
+    },
+
+    // Download image from GridFS by file ID, returns Buffer
+    async downloadImageFromGridFS(fileId) {
+        if (!gridFSBucket) {
+            throw new Error('GridFS bucket not initialized. Call connect() first.');
+        }
+
+        const { ObjectId } = require('mongodb');
+        const objectId = typeof fileId === 'string' ? new ObjectId(fileId) : fileId;
+
+        return new Promise((resolve, reject) => {
+            const chunks = [];
+            const downloadStream = gridFSBucket.openDownloadStream(objectId);
+
+            downloadStream
+                .on('data', chunk => chunks.push(chunk))
+                .on('error', reject)
+                .on('end', () => {
+                    resolve(Buffer.concat(chunks));
+                });
+        });
+    },
+
+    // Get GridFS file info by ID
+    async getGridFSFileInfo(fileId) {
+        if (!gridFSBucket) {
+            throw new Error('GridFS bucket not initialized. Call connect() first.');
+        }
+
+        const { ObjectId } = require('mongodb');
+        const objectId = typeof fileId === 'string' ? new ObjectId(fileId) : fileId;
+
+        const files = await gridFSBucket.find({ _id: objectId }).toArray();
+        return files.length > 0 ? files[0] : null;
+    },
+
+    // Delete image from GridFS by file ID
+    async deleteImageFromGridFS(fileId) {
+        if (!gridFSBucket) {
+            throw new Error('GridFS bucket not initialized. Call connect() first.');
+        }
+
+        const { ObjectId } = require('mongodb');
+        const objectId = typeof fileId === 'string' ? new ObjectId(fileId) : fileId;
+
+        await gridFSBucket.delete(objectId);
+        console.log(`[gridfs] Deleted: ${fileId}`);
     },
 
     // Close

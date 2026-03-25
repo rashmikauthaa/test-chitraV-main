@@ -119,6 +119,26 @@ export async function login(email, password) {
         token: data.token,
         loggedIn: true,
     });
+
+    // Claim any unclaimed photos for this user and refresh catalog
+    try {
+        await fetch('/api/claim-photos', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${data.token}` 
+            },
+            body: JSON.stringify({ userId: data.user.id, userName: data.user.name }),
+        });
+        const catalogRes = await fetch('/api/catalog');
+        if (catalogRes.ok) {
+            const freshCatalog = await catalogRes.json();
+            setState('catalog', freshCatalog);
+        }
+    } catch (e) {
+        console.warn('[login] Failed to claim photos:', e);
+    }
+
     return data.user;
 }
 

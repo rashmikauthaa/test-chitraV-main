@@ -19,8 +19,10 @@ export function render({ id }) {
 
       <div class="cv-bid-room">
         <div>
-          <div style="aspect-ratio:4/3;background:linear-gradient(135deg,${item.color || '#333'}40,var(--color-gradient-end));border-radius:var(--radius-lg);margin-bottom:var(--space-6);display:flex;align-items:center;justify-content:center;">
-            <span style="font-size:var(--text-xs);color:rgba(255,255,255,0.3);letter-spacing:0.2em;text-transform:uppercase;">Sealed Bid Auction</span>
+          <div style="aspect-ratio:4/3;background:linear-gradient(135deg,${item.color || '#333'}40,var(--color-gradient-end));border-radius:var(--radius-lg);margin-bottom:var(--space-6);position:relative;overflow:hidden;">
+            <img src="/api/image-preview/${item.id}?v=${Date.now()}" alt="${item.title}"
+              style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;"
+              onerror="this.style.display='none'" />
           </div>
           <h1 style="font-family:var(--font-display);font-size:var(--text-2xl);font-weight:600;color:var(--color-text-primary);margin-bottom:var(--space-2);">${item.title}</h1>
           <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-4);">${item.artist}</p>

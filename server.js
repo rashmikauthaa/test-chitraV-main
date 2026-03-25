@@ -36,7 +36,50 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || `http://localhost:${PORT}`).replace(/\/$/, '');
 
 const ROOT = __dirname;
-const UPLOAD_DIR = path.join(ROOT, 'public', 'uploads');
+
+/** 
+ * Load photo file for an item - tries GridFS first, then falls back to filesystem.
+ * This allows backward compatibility with existing filesystem-stored images.
+ */
+async function loadPhotoFileForItem(item) {
+    if (!item) return null;
+    
+    // Try GridFS first (new storage method)
+    if (item.gridfs_id) {
+        try {
+            const buffer = await store.downloadImageFromGridFS(item.gridfs_id);
+            return { 
+                buffer, 
+                filename: item.filename || item.saved_as,
+                mimeType: item.mimeType || 'image/jpeg'
+            };
+        } catch (err) {
+            console.error(`[image] GridFS download failed for ${item.gridfs_id}:`, err.message);
+        }
+    }
+    
+    // Fallback to filesystem (legacy support)
+    const names = [...new Set([item.saved_as, item.filename].filter((n) => n && String(n).trim()))];
+    const subdirs = ['uploads', 'images'];
+    for (const name of names) {
+        for (const sub of subdirs) {
+            const p = path.join(ROOT, 'public', sub, name);
+            if (fs.existsSync(p)) {
+                return { buffer: fs.readFileSync(p), filename: name };
+            }
+        }
+    }
+    return null;
+}
+
+function mimeFromFilename(filename) {
+    const ext = path.extname(filename || '').toLowerCase();
+    if (ext === '.png') return 'image/png';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.gif') return 'image/gif';
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    return 'image/jpeg';
+}
 
 // AES-256-GCM encryption shared secret
 const MASTER_KEY = crypto.scryptSync('chitraVithika-secret-2026', 'cv-salt', 32);
@@ -95,6 +138,7 @@ const MIME_TYPES = {
 
 // ─────────────────────────────────────────────────────────────
 // ENSURE REQUIRED DIRECTORIES EXIST
+// Note: public/uploads kept for backward compatibility with legacy filesystem images
 // ─────────────────────────────────────────────────────────────
 [
     path.join(ROOT, 'public'),
@@ -420,21 +464,19 @@ async function handleRequest(req, res) {
                 return res.end(JSON.stringify({ error: 'Item not found' }));
             }
 
-            let imageBuffer = null;
-            const candidatePaths = [
-                path.join(ROOT, 'public', 'images', item.filename || ''),
-                path.join(ROOT, 'public', 'uploads', item.filename || ''),
-            ];
-            for (const p of candidatePaths) {
-                if (fs.existsSync(p)) { imageBuffer = fs.readFileSync(p); break; }
-            }
-
-            if (!imageBuffer) {
+            const loaded = await loadPhotoFileForItem(item);
+            let imageBuffer;
+            let contentType;
+            if (loaded) {
+                imageBuffer = loaded.buffer;
+                contentType = loaded.mimeType || mimeFromFilename(loaded.filename);
+            } else {
                 imageBuffer = generatePlaceholderJPEG(item.color || '#888888', item.title);
+                contentType = 'image/bmp';
             }
 
             res.writeHead(200, {
-                'Content-Type': 'image/jpeg',
+                'Content-Type': contentType,
                 'Content-Length': imageBuffer.length,
                 'Cache-Control': 'public, max-age=3600',
             });
@@ -452,16 +494,11 @@ async function handleRequest(req, res) {
                 return res.end(JSON.stringify({ error: 'Item not found' }));
             }
 
-            let imageBuffer = null;
-            const candidatePaths = [
-                path.join(ROOT, 'public', 'images', item.filename || ''),
-                path.join(ROOT, 'public', 'uploads', item.filename || ''),
-            ];
-            for (const p of candidatePaths) {
-                if (fs.existsSync(p)) { imageBuffer = fs.readFileSync(p); break; }
-            }
-
-            if (!imageBuffer) {
+            const loaded = await loadPhotoFileForItem(item);
+            let imageBuffer;
+            if (loaded) {
+                imageBuffer = loaded.buffer;
+            } else {
                 imageBuffer = generatePlaceholderJPEG(item.color || '#888888', item.title);
             }
 
@@ -479,7 +516,7 @@ async function handleRequest(req, res) {
             return res.end(ciphertext);
         }
 
-        // ── POST /api/upload — Multipart Upload + DB Insert ────
+        // ── POST /api/upload — Multipart Upload + GridFS Storage ────
         if (pname === '/api/upload' && method === 'POST') {
             const contentType = req.headers['content-type'] || '';
             const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
@@ -511,14 +548,23 @@ async function handleRequest(req, res) {
                 const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
                 if (!allowed.includes(ext)) continue;
 
-                const newName = `${crypto.randomBytes(16).toString('hex')}${ext}`;
-                const dest = path.join(UPLOAD_DIR, newName);
-                fs.writeFileSync(dest, filePart.data);
+                // Determine MIME type
+                const mimeType = mimeFromFilename(filePart.filename);
+                
+                // Generate a unique filename for GridFS
+                const gridfsFilename = `${crypto.randomBytes(16).toString('hex')}${ext}`;
+                
+                // Upload to GridFS (MongoDB) instead of filesystem
+                const gridfsId = await store.uploadImageToGridFS(
+                    filePart.data, 
+                    gridfsFilename, 
+                    mimeType
+                );
 
                 // Parse EXIF
                 const exif = parseExifFromBuffer(filePart.data);
 
-                // Insert into DB
+                // Insert into DB with GridFS reference
                 const photoId = await store.insertPhotograph({
                     title: fields.title || filePart.filename.replace(ext, ''),
                     description: fields.description || null,
@@ -532,8 +578,10 @@ async function handleRequest(req, res) {
                     remaining: parseInt(fields.editions) || 5,
                     color: fields.color || '#888888',
                     filename: filePart.filename,
-                    saved_as: newName,
+                    saved_as: gridfsFilename,
+                    gridfs_id: gridfsId,
                     file_size: filePart.data.length,
+                    mime_type: mimeType,
                     exif_camera: exif.camera,
                     exif_lens: exif.lens,
                     exif_iso: exif.iso,
@@ -568,14 +616,15 @@ async function handleRequest(req, res) {
                 saved.push({
                     id: photoId,
                     filename: filePart.filename,
-                    savedAs: newName,
+                    savedAs: gridfsFilename,
+                    gridfsId: gridfsId.toString(),
                     size: filePart.data.length,
                     artist: uploadUser?.name || 'Unknown',
                     artistId: uploadUser?.id || null,
                     exif,
                 });
 
-                console.log(`[upload] ${filePart.filename} → ${newName} (${filePart.data.length}b) → photo#${photoId} auction#${auctionId}`);
+                console.log(`[upload] ${filePart.filename} → GridFS:${gridfsId} (${filePart.data.length}b) → photo#${photoId} auction#${auctionId}`);
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -734,6 +783,64 @@ async function handleRequest(req, res) {
             const bids = await store.getBidsForAuction(auction.id);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify(bids));
+        }
+
+        // ── POST /api/purchase/:id — Purchase an edition ─────────
+        const purchaseMatch = pname.match(/^\/api\/purchase\/(\d+)$/);
+        if (purchaseMatch && method === 'POST') {
+            const photoId = parseInt(purchaseMatch[1], 10);
+            const buyer = await getUserFromRequest(req);
+            
+            // For demo: allow purchase even without valid server token
+            // In production, you'd want proper session management
+            const buyerId = buyer?.id || null;
+            
+            const result = await store.purchaseEdition(photoId, buyerId);
+            
+            if (!result.success) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.error }));
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                success: true,
+                remaining: result.remaining,
+                soldOut: result.soldOut,
+            }));
+        }
+
+        // ── POST /api/claim-photos — Claim all unclaimed photos for current user ─────────
+        if (pname === '/api/claim-photos' && method === 'POST') {
+            const user = await getUserFromRequest(req);
+            
+            // Try to get user info from request body if not authenticated
+            let userId = user?.id;
+            let userName = user?.name;
+            
+            if (!userId) {
+                try {
+                    const body = await readBody(req);
+                    const data = JSON.parse(body.toString());
+                    userId = data.userId;
+                    userName = data.userName;
+                } catch (e) {
+                    // Ignore parse errors
+                }
+            }
+            
+            if (!userId || !userName) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'User info required' }));
+            }
+            
+            const result = await store.claimUnclaimedPhotos(userId, userName);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                success: true,
+                claimed: result.modified,
+            }));
         }
 
         // ── SPA Catch-All ──────────────────────────────────────

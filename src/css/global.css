@@ -359,6 +359,18 @@ html[data-theme="light"] body::after {
   width: 100%;
 }
 
+/* Guests: browsing / auctions / artists / search / browse hidden; members: “Join” hidden */
+html:not(.cv-logged-in) .cv-nav__link--member,
+html:not(.cv-logged-in) .cv-header__action--member,
+html:not(.cv-logged-in) .cv-footer__link--member {
+  display: none !important;
+}
+
+html.cv-logged-in .cv-nav__link--guest-only,
+html.cv-logged-in .cv-footer__link--guest-only {
+  display: none !important;
+}
+
 .cv-header__actions {
   display: flex;
   align-items: center;

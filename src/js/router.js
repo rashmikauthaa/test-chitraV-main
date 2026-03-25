@@ -10,6 +10,16 @@ const routes = [];
 let currentCleanup = null;
 let outlet = null;
 
+/** @type {null | ((pathname: string) => string | null)} */
+let routeGuard = null;
+
+/**
+ * Set a function that returns a redirect URL (e.g. /login?next=...) or null to allow the route.
+ */
+export function setRouteGuard(fn) {
+    routeGuard = fn;
+}
+
 /**
  * Register a route pattern → page module path mapping.
  * Pattern supports :param segments, e.g. '/gallery/:id'
@@ -66,7 +76,17 @@ async function render(pathname) {
     if (!outlet) outlet = document.getElementById('cv-page');
     if (!outlet) return;
 
-    const matched = matchRoute(pathname);
+    let pathOnly = pathname.split('?')[0];
+
+    if (routeGuard) {
+        const redirect = routeGuard(pathOnly);
+        if (redirect) {
+            history.replaceState(null, '', redirect);
+            pathOnly = '/login';
+        }
+    }
+
+    const matched = matchRoute(pathOnly);
 
     if (!matched) {
         try {
@@ -112,10 +132,10 @@ async function render(pathname) {
     }
 
     // Update active nav links
-    updateNavActive(pathname);
+    updateNavActive(pathOnly);
 
     // Notify the rest of the app that the route changed
-    document.dispatchEvent(new CustomEvent('cv:route-change', { detail: { pathname } }));
+    document.dispatchEvent(new CustomEvent('cv:route-change', { detail: { pathname: pathOnly } }));
 }
 
 function notFoundPage(path) {
@@ -172,11 +192,11 @@ export function initRouter() {
         navigate(href);
     });
 
-    // Handle browser back/forward
+    // Handle browser back/forward (preserve ?next= and other query params)
     window.addEventListener('popstate', () => {
-        render(window.location.pathname);
+        render(window.location.pathname + window.location.search);
     });
 
     // Initial render
-    render(window.location.pathname);
+    render(window.location.pathname + window.location.search);
 }
